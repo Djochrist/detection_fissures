@@ -1,0 +1,65 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "detection-fissures"
+version = "1.0.0"
+description = "Détection et segmentation de fissures structurelles par Mask R-CNN"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Équipe Génie Civil IA" }]
+
+dependencies = [
+    # Apprentissage automatique
+    "torch>=2.2.0",
+    "torchvision>=0.17.0",
+
+    # Vision par ordinateur
+    "opencv-python>=4.9.0",
+
+    # Calcul scientifique
+    "numpy>=1.26.0",
+    "scipy>=1.12.0",
+
+    # Métriques COCO
+    "torchmetrics[detection]>=1.3.0",
+
+    # Format COCO
+    "pycocotools>=2.0.7",
+
+    # Journalisation
+    "rich>=13.7.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ipykernel>=6.29.0",
+    "jupyter>=1.0.0",
+    "ipywidgets>=8.0.0",
+]
+
+[project.scripts]
+entrainer = "detection_fissures.entrainer:main"
+analyser  = "detection_fissures.analyser:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+
+[tool.uv]
+dev-dependencies = [
+    "ipykernel>=6.29.0",
+    "jupyter>=1.0.0",
+    "ipywidgets>=8.0.0",
+]
+
+[tool.uv.sources]
+# Pour CUDA, décommenter les lignes ci-dessous :
+# torch = [{ index = "pytorch-cu121" }]
+# torchvision = [{ index = "pytorch-cu121" }]
+
+# [[tool.uv.index]]
+# name = "pytorch-cu121"
+# url = "https://download.pytorch.org/whl/cu121"
+# explicit = true

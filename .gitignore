@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.python-version
+.python-version
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Dataset and training outputs
+dataset/
+sorties/
+/content/drive/**
+
+# Logs and checkpoints
+*.log
+*.pth
+*.pt
+
+# Packaging
+*.egg-info/
+build/
+dist/
+
+# OS files
+.DS_Store
+Thumbs.db
