@@ -87,25 +87,121 @@ uv sync
 
 ---
 
-## Dataset et GitHub
+## Dataset, GitHub et Colab
 
 - Ne pousse pas le dossier `dataset/` sur GitHub. Le dataset est ignoré dans `.gitignore`.
 - Stocke ton dataset sur Google Drive, un stockage externe ou un lien Roboflow.
-- Sur Colab, utilise `--donnees /content/drive/MyDrive/dataset` et `--sorties /content/drive/MyDrive/detection_fissures_sorties`.
-- Si Colab coupe l'exécution, relance le même notebook avec `--resume sorties/modeles/dernier_modele.pth`.
+- Sur Colab, utilise `--donnees /content/drive/MyDrive/dataset` et `--sorties /content/drive/MyDrive/detection_fissures_sorties_*`.
+- Si Colab coupe l'exécution, relance avec `--resume /content/drive/MyDrive/.../modeles/dernier_modele.pth`.
 
-Exemple de commande Colab :
+### Commandes complètes pour Google Colab
+
+Monter Google Drive :
+
+```python
+from google.colab import drive
+drive.mount("/content/drive")
+```
+
+Aller dans le projet :
+
+```bash
+cd /content/drive/MyDrive/detection_fissures
+```
+
+Installer les dépendances :
+
+```bash
+pip install -U torch torchvision opencv-python numpy scipy pycocotools "torchmetrics[detection]" rich
+```
+
+Structure du dataset sur Drive :
+
+```text
+/content/drive/MyDrive/dataset/
+├── train/
+│   ├── _annotations.coco.json
+│   └── images...
+├── valid/
+│   ├── _annotations.coco.json
+│   └── images...
+└── test/
+    ├── _annotations.coco.json
+    └── images...
+```
+
+### Modèle 1 — Mask R-CNN recommandé
 
 ```bash
 python entrainer.py \
   --architecture maskrcnn_resnet50_fpn_v2 \
   --donnees /content/drive/MyDrive/dataset \
-  --sorties /content/drive/MyDrive/detection_fissures_sorties \
+  --sorties /content/drive/MyDrive/detection_fissures_sorties_mask_v2 \
+  --epoques 100 \
+  --lot 4 \
+  --lr 5e-5 \
+  --taille-image 384 \
+  --dispositif cuda
+```
+
+### Modèle 2 — Mask R-CNN alternatif
+
+```bash
+python entrainer.py \
+  --architecture maskrcnn_resnet50_fpn \
+  --donnees /content/drive/MyDrive/dataset \
+  --sorties /content/drive/MyDrive/detection_fissures_sorties_mask_fpn \
+  --epoques 100 \
+  --lot 4 \
+  --lr 5e-5 \
+  --taille-image 384 \
+  --dispositif cuda
+```
+
+### Reprendre un entraînement interrompu
+
+Exemple pour reprendre le modèle Mask R-CNN recommandé :
+
+```bash
+python entrainer.py \
+  --architecture maskrcnn_resnet50_fpn_v2 \
+  --donnees /content/drive/MyDrive/dataset \
+  --sorties /content/drive/MyDrive/detection_fissures_sorties_mask_v2 \
+  --epoques 100 \
+  --lot 4 \
+  --lr 5e-5 \
+  --taille-image 384 \
+  --dispositif cuda \
+  --resume /content/drive/MyDrive/detection_fissures_sorties_mask_v2/modeles/dernier_modele.pth
+```
+
+### Analyse après entraînement
+
+```bash
+python analyser.py \
+  --modele /content/drive/MyDrive/detection_fissures_sorties_mask_v2/modeles/meilleur_modele.pth \
+  --images /content/drive/MyDrive/images_a_tester \
+  --sortie /content/drive/MyDrive/resultats_fissures.json \
+  --seuil 0.5
+```
+
+### U-Net
+
+Le dépôt actuel ne contient pas encore d'implémentation U-Net. Il n'existe donc
+pas encore de commande exécutable pour U-Net dans ce projet.
+
+La commande prévue, une fois `entrainer_unet.py` et le modèle U-Net ajoutés,
+serait :
+
+```bash
+python entrainer_unet.py \
+  --donnees /content/drive/MyDrive/dataset \
+  --sorties /content/drive/MyDrive/detection_fissures_sorties_unet \
   --epoques 100 \
   --lot 8 \
-  --lr 5e-5 \
-  --dispositif cuda \
-  --resume sorties/modeles/dernier_modele.pth
+  --lr 1e-4 \
+  --taille-image 384 \
+  --dispositif cuda
 ```
 
 ---
