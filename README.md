@@ -92,7 +92,8 @@ uv sync
 - Ne pousse pas le dossier `dataset/` sur GitHub. Le dataset est ignoré dans `.gitignore`.
 - Stocke ton dataset sur Google Drive, un stockage externe ou un lien Roboflow.
 - Sur Colab, clone d'abord le projet GitHub dans `/content`, puis utilise Google Drive uniquement pour le dataset et les sorties.
-- Utilise `--donnees /content/drive/MyDrive/dataset` et `--sorties /content/drive/MyDrive/detection_fissures_sorties_*`.
+- Indique le dossier du dataset avec `--donnees /content/drive/MyDrive/dataset`.
+- Indique le dossier de sauvegarde avec `--sorties /content/drive/MyDrive/detection_fissures_sorties_*`.
 - Si Colab coupe l'exécution, relance avec `--resume /content/drive/MyDrive/.../modeles/dernier_modele.pth`.
 
 ### Commandes complètes pour Google Colab
@@ -125,7 +126,7 @@ Installer les dépendances :
 pip install -U torch torchvision opencv-python numpy scipy pycocotools "torchmetrics[detection]" rich
 ```
 
-Structure du dataset sur Drive :
+Structure du dataset sur Drive, à passer au script avec `--donnees /content/drive/MyDrive/dataset` :
 
 ```text
 /content/drive/MyDrive/dataset/
