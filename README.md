@@ -91,22 +91,32 @@ uv sync
 
 - Ne pousse pas le dossier `dataset/` sur GitHub. Le dataset est ignoré dans `.gitignore`.
 - Stocke ton dataset sur Google Drive, un stockage externe ou un lien Roboflow.
-- Sur Colab, utilise `--donnees /content/drive/MyDrive/dataset` et `--sorties /content/drive/MyDrive/detection_fissures_sorties_*`.
+- Sur Colab, clone d'abord le projet GitHub dans `/content`, puis utilise Google Drive uniquement pour le dataset et les sorties.
+- Utilise `--donnees /content/drive/MyDrive/dataset` et `--sorties /content/drive/MyDrive/detection_fissures_sorties_*`.
 - Si Colab coupe l'exécution, relance avec `--resume /content/drive/MyDrive/.../modeles/dernier_modele.pth`.
 
 ### Commandes complètes pour Google Colab
 
-Monter Google Drive :
+Monter Google Drive pour accéder au dataset et sauvegarder les checkpoints :
 
 ```python
 from google.colab import drive
 drive.mount("/content/drive")
 ```
 
-Aller dans le projet :
+Cloner le projet GitHub dans l'environnement Colab :
 
 ```bash
-cd /content/drive/MyDrive/detection_fissures
+cd /content
+git clone https://github.com/Djochrist/detection_fissures.git
+cd detection_fissures
+```
+
+Si le dossier existe déjà dans la session Colab, mets-le à jour :
+
+```bash
+cd /content/detection_fissures
+git pull origin main
 ```
 
 Installer les dépendances :
