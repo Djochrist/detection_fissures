@@ -5,7 +5,7 @@ Charge les images et annotations au format COCO (Roboflow export).
 Aucune augmentation n'est appliquée — le dataset est déjà prétraité.
 
 Format de sortie attendu par Mask R-CNN (torchvision) :
-    image   : FloatTensor[3, H, W] normalisé ImageNet
+    image   : FloatTensor[3, H, W] dans [0, 1]
     cibles  : {
         "boxes"    : FloatTensor[N, 4]  (x1, y1, x2, y2)
         "labels"   : Int64Tensor[N]
@@ -22,14 +22,14 @@ from typing import Dict, List, Tuple
 import cv2
 import numpy as np
 import torch
-import torchvision.transforms.functional as TF
 from pycocotools.coco import COCO
 from torch.utils.data import Dataset
 
-
-# Statistiques ImageNet — obligatoires pour le backbone ResNet préentraîné
-_MOYENNE_IMAGENET = [0.485, 0.456, 0.406]
-_ECART_TYPE_IMAGENET = [0.229, 0.224, 0.225]
+from ..utilitaires.images import (
+    charger_image_rgb,
+    image_rgb_vers_tenseur,
+    redimensionner_image_carree,
+)
 
 
 class JeuDonneesFissuresCOCO(Dataset):
@@ -95,7 +95,7 @@ class JeuDonneesFissuresCOCO(Dataset):
         2. Redimensionner à taille_image × taille_image
         3. Décoder les masques polygonaux COCO
         4. Convertir en tenseurs PyTorch
-        5. Normaliser avec les stats ImageNet
+        5. Convertir en tenseur dans [0, 1]
         """
         id_image = self.ids_images[index]
 
@@ -103,19 +103,10 @@ class JeuDonneesFissuresCOCO(Dataset):
         metadonnees = self.api_coco.imgs[id_image]
         chemin_complet = self.chemin_images / metadonnees["file_name"]
 
-        image_bgr = cv2.imread(str(chemin_complet))
-        if image_bgr is None:
-            raise FileNotFoundError(f"Image introuvable : {chemin_complet}")
-
-        image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-        hauteur_orig, largeur_orig = image_rgb.shape[:2]
+        image_rgb, largeur_orig, hauteur_orig = charger_image_rgb(chemin_complet)
 
         # ── 2. Redimensionner l'image ─────────────────────────────────────────
-        image_rgb = cv2.resize(
-            image_rgb,
-            (self.taille_image, self.taille_image),
-            interpolation=cv2.INTER_LINEAR,
-        )
+        image_rgb = redimensionner_image_carree(image_rgb, self.taille_image)
 
         # Facteurs d'échelle pour adapter les boites et masques
         echelle_x = self.taille_image / largeur_orig
@@ -182,12 +173,7 @@ class JeuDonneesFissuresCOCO(Dataset):
                 "iscrowd":  torch.as_tensor(est_foule, dtype=torch.uint8),
             }
 
-        # ── 5. Convertir l'image en tenseur et normaliser ─────────────────────
-        tenseur_image = torch.from_numpy(image_rgb).permute(2, 0, 1).float() / 255.0
-        tenseur_image = TF.normalize(
-            tenseur_image,
-            mean=_MOYENNE_IMAGENET,
-            std=_ECART_TYPE_IMAGENET,
-        )
+        # ── 5. Convertir l'image en tenseur ───────────────────────────────────
+        tenseur_image = image_rgb_vers_tenseur(image_rgb)
 
         return tenseur_image, cibles

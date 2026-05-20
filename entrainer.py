@@ -32,13 +32,18 @@ from pathlib import Path
 RACINE_PROJET = Path(__file__).resolve().parent
 sys.path.insert(0, str(RACINE_PROJET.parent))
 
-from detection_fissures.configuration.parametres import ConfigurationGlobale
-
-SPLITS_DATASET = ("train", "valid", "test")
+from detection_fissures.configuration.parametres import (
+    ARCHITECTURES_MODELES_SEGMENTATION,
+    NOM_FICHIER_ANNOTATIONS_COCO,
+    NOM_HISTORIQUE_ENTRAINEMENT,
+    SPLITS_DATASET,
+    ConfigurationGlobale,
+)
 
 
 def analyser_arguments() -> argparse.Namespace:
     """Parse les arguments de la ligne de commande."""
+    configuration = ConfigurationGlobale()
     analyseur = argparse.ArgumentParser(
         description="Entraînement Mask R-CNN — Détection de fissures",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -47,38 +52,45 @@ def analyser_arguments() -> argparse.Namespace:
     analyseur.add_argument(
         "--donnees",
         type=str,
-        default=str(RACINE_PROJET / "dataset"),
+        default=str(RACINE_PROJET / configuration.chemins.donnees_racine),
         help="Répertoire racine du dataset (contient train/, valid/, test/)",
     )
     analyseur.add_argument(
         "--epoques",
         type=int,
-        default=50,
+        default=configuration.entrainement.nombre_epoques,
         help="Nombre maximum d'époques",
     )
     analyseur.add_argument(
         "--lot",
         type=int,
-        default=4,
+        default=configuration.entrainement.taille_lot,
         help="Taille du lot (4 pour GPU 8Go, 8 pour GPU 16Go+)",
     )
     analyseur.add_argument(
         "--lr",
         type=float,
-        default=1e-4,
+        default=configuration.entrainement.taux_apprentissage,
         help="Taux d'apprentissage initial",
     )
     analyseur.add_argument(
         "--patience",
         type=int,
-        default=10,
+        default=configuration.entrainement.patience_arret_precoce,
         help="Patience de l'arrêt anticipé (early stopping)",
     )
     analyseur.add_argument(
         "--taille-image",
         type=int,
-        default=384,
+        default=configuration.modele.taille_image_min,
         help="Résolution des images (carré, en pixels)",
+    )
+    analyseur.add_argument(
+        "--architecture",
+        type=str,
+        default=configuration.modele.architecture,
+        choices=ARCHITECTURES_MODELES_SEGMENTATION,
+        help="Architecture Mask R-CNN torchvision à fine-tuner",
     )
     analyseur.add_argument(
         "--dispositif",
@@ -90,7 +102,7 @@ def analyser_arguments() -> argparse.Namespace:
     analyseur.add_argument(
         "--graine",
         type=int,
-        default=42,
+        default=configuration.entrainement.graine_aleatoire,
         help="Graine aléatoire pour la reproductibilité",
     )
     analyseur.add_argument(
@@ -98,6 +110,12 @@ def analyser_arguments() -> argparse.Namespace:
         type=str,
         default="sorties",
         help="Répertoire de sortie pour les modèles et journaux",
+    )
+    analyseur.add_argument(
+        "--resume",
+        type=str,
+        default=None,
+        help="Chemin vers un checkpoint .pth pour reprendre l'entraînement",
     )
     analyseur.add_argument(
         "--sans-mixte",
@@ -126,7 +144,7 @@ def verifier_dataset(chemin_donnees: Path) -> None:
 
     for split in SPLITS_DATASET:
         dossier_split = chemin_donnees / split
-        chemin_annotations = dossier_split / "_annotations.coco.json"
+        chemin_annotations = dossier_split / NOM_FICHIER_ANNOTATIONS_COCO
 
         if not dossier_split.is_dir():
             erreurs.append(f"- Dossier manquant : {dossier_split}")
@@ -215,19 +233,10 @@ def main() -> None:
     config.entrainement.precision_mixte = not args.sans_mixte
     config.modele.taille_image_min = args.taille_image
     config.modele.taille_image_max = args.taille_image
+    config.modele.architecture = args.architecture
 
-    config.chemins.donnees_racine = chemin_donnees
-    config.chemins.chemin_entrainement = chemin_donnees / "train"
-    config.chemins.chemin_validation   = chemin_donnees / "valid"
-    config.chemins.chemin_test         = chemin_donnees / "test"
-    nom_annotations = "_annotations.coco.json"
-    config.chemins.annotations_entrainement = chemin_donnees / "train" / nom_annotations
-    config.chemins.annotations_validation = chemin_donnees / "valid" / nom_annotations
-    config.chemins.annotations_test = chemin_donnees / "test" / nom_annotations
-
-    config.chemins.sorties_racine  = Path(args.sorties)
-    config.chemins.dossier_modeles = Path(args.sorties) / "modeles"
-    config.chemins.dossier_journaux = Path(args.sorties) / "journaux"
+    config.chemins.definir_racine_donnees(chemin_donnees)
+    config.chemins.definir_racine_sorties(args.sorties)
     config.chemins.creer_dossiers()
 
     # ── 2. Reproductibilité ────────────────────────────────────────────────────
@@ -256,6 +265,7 @@ def main() -> None:
     # ── 5. Construction du modèle ─────────────────────────────────────────────
     modele = construire_modele_masque_rcnn(
         nombre_classes=config.modele.nombre_classes,
+        architecture=config.modele.architecture,
         seuil_score_detection=config.modele.seuil_score_detection,
         seuil_iou_nms=config.modele.seuil_iou_nms,
         detections_max_par_image=config.modele.detections_max_par_image,
@@ -280,6 +290,14 @@ def main() -> None:
         precision_mixte=config.entrainement.precision_mixte,
         frequence_affichage=config.entrainement.frequence_affichage,
     )
+
+    if args.resume:
+        checkpoint_resume = Path(args.resume).expanduser().resolve()
+        if not checkpoint_resume.is_file():
+            raise FileNotFoundError(f"Checkpoint de reprise introuvable : {checkpoint_resume}")
+        print(f"[Reprise] Chargement du checkpoint : {checkpoint_resume}")
+        checkpoint = torch.load(checkpoint_resume, map_location=dispositif)
+        entraineur.reprendre_checkpoint(checkpoint)
 
     try:
         historique = entraineur.entrainer()
@@ -309,7 +327,7 @@ def main() -> None:
     afficher_tableau_metriques(metriques_test)
 
     # ── 8. Sauvegarde de l'historique ─────────────────────────────────────────
-    chemin_historique = config.chemins.dossier_journaux / "historique_entrainement.json"
+    chemin_historique = config.chemins.dossier_journaux / NOM_HISTORIQUE_ENTRAINEMENT
     with open(chemin_historique, "w", encoding="utf-8") as f:
         json.dump(
             {
@@ -319,6 +337,7 @@ def main() -> None:
                     "taux_apprentissage": args.lr,
                     "patience": args.patience,
                     "taille_image": args.taille_image,
+                    "architecture": args.architecture,
                     "graine": args.graine,
                 },
                 "metriques_test": metriques_test,

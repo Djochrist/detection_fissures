@@ -1,7 +1,11 @@
 # Détection de Fissures Structurelles — Mask R-CNN
 
 Segmentation d'instance de fissures sur structures (béton, maçonnerie)
-basée sur **Mask R-CNN ResNet50-FPN-V2** (torchvision).
+basée sur **Mask R-CNN** (torchvision), avec deux architectures
+fine-tunables sur les fissures :
+
+- `maskrcnn_resnet50_fpn_v2` : modèle principal recommandé.
+- `maskrcnn_resnet50_fpn` : modèle alternatif pour benchmark comparatif.
 
 ---
 
@@ -22,7 +26,7 @@ detection_fissures/
 │   └── chargeur.py             # DataLoaders avec collate_fn
 │
 ├── modeles/
-│   └── masque_rcnn.py          # Mask R-CNN ResNet50-FPN-V2
+│   └── masque_rcnn.py          # Factories Mask R-CNN V2 et FPN classique
 │
 ├── entrainement/
 │   ├── entraineur.py           # Boucle d'entraînement + early stopping
@@ -64,7 +68,9 @@ dataset/
 
 Le fichier d'annotations doit être au format **COCO** (export Roboflow).
 Aucun prétraitement supplémentaire n'est appliqué — le dataset est utilisé tel quel.
-La normalisation ImageNet est appliquée automatiquement lors du chargement.
+Les images sont fournies aux modèles sous forme de tenseurs float `[0, 1]`.
+La normalisation attendue par Mask R-CNN est gérée par le transform interne
+de `torchvision`.
 Au démarrage, `entrainer.py` vérifie que `train/`, `valid/`, `test/`,
 leurs fichiers `_annotations.coco.json` et les images référencées existent.
 
@@ -81,14 +87,41 @@ uv sync
 
 ---
 
+## Dataset et GitHub
+
+- Ne pousse pas le dossier `dataset/` sur GitHub. Le dataset est ignoré dans `.gitignore`.
+- Stocke ton dataset sur Google Drive, un stockage externe ou un lien Roboflow.
+- Sur Colab, utilise `--donnees /content/drive/MyDrive/dataset` et `--sorties /content/drive/MyDrive/detection_fissures_sorties`.
+- Si Colab coupe l'exécution, relance le même notebook avec `--resume sorties/modeles/dernier_modele.pth`.
+
+Exemple de commande Colab :
+
+```bash
+python entrainer.py \
+  --architecture maskrcnn_resnet50_fpn_v2 \
+  --donnees /content/drive/MyDrive/dataset \
+  --sorties /content/drive/MyDrive/detection_fissures_sorties \
+  --epoques 100 \
+  --lot 8 \
+  --lr 5e-5 \
+  --dispositif cuda \
+  --resume sorties/modeles/dernier_modele.pth
+```
+
+---
+
 ## Utilisation
 
 ### 1. Entraînement
 ```bash
 python entrainer.py
-python entrainer.py --donnees /chemin/vers/dataset --epoques 100 --lot 8 --lr 5e-5
+python entrainer.py --architecture maskrcnn_resnet50_fpn_v2 --donnees /chemin/vers/dataset --epoques 100 --lot 8 --lr 5e-5
+python entrainer.py --architecture maskrcnn_resnet50_fpn --donnees /chemin/vers/dataset --sorties sorties_fpn_v1
 python entrainer.py --dispositif cuda
 ```
+
+Les checkpoints conservent l'architecture utilisée, ce qui permet à `analyser.py`
+de reconstruire automatiquement le bon modèle pendant l'inférence.
 
 ### 2. Classification des fissures (après entraînement)
 ```bash

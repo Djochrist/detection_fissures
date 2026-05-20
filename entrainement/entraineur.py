@@ -32,15 +32,15 @@ ANTI-OVERFITTING POUR PETIT DATASET :
 
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List
 
 import torch
 import torch.optim as optim
 from torch.amp import GradScaler, autocast
 from torch.utils.data import DataLoader
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeRemainingColumn
 
+from ..configuration.parametres import NOM_DERNIER_MODELE, NOM_MEILLEUR_MODELE
 from ..modeles.masque_rcnn import (
     geler_backbone,
     degeler_couches_superieures,
@@ -133,6 +133,7 @@ class Entraineur:
         self.meilleure_map_50: float = 0.0
         self.epoques_sans_amelioration: int = 0
         self.epoque_meilleur_modele: int = 0
+        self.epoque_depart: int = 1
 
         # Suivi des fichiers de checkpoint créés pendant l'exécution
         self._fichiers_checkpoint_crees: set[Path] = set()
@@ -149,6 +150,21 @@ class Entraineur:
             self.optimiseur,
             T_max=nombre_epoques,
             eta_min=1e-6,
+        )
+
+    def reprendre_checkpoint(self, checkpoint: Dict[str, object]) -> None:
+        """Charge un checkpoint existant pour reprendre l'entraînement."""
+        self.modele.load_state_dict(checkpoint["etat_modele"])
+        self.optimiseur.load_state_dict(checkpoint["etat_optimiseur"])
+        self.scheduler.load_state_dict(checkpoint["etat_scheduler"])
+        self.historique = checkpoint.get("historique", self.historique)
+        self.meilleure_map_50 = checkpoint.get("meilleure_map_50", self.meilleure_map_50)
+        self.epoque_meilleur_modele = int(checkpoint.get("epoque", self.epoque_meilleur_modele))
+        self.epoque_depart = int(checkpoint.get("epoque", 0)) + 1
+        self.epoques_sans_amelioration = 0
+        console.print(
+            f"[green]Checkpoint chargé : époque {self.epoque_depart - 1}, "
+            f"mAP@0.5 = {checkpoint.get('metriques', {}).get('map_50', 0.0):.4f}[/green]"
         )
 
     def _creer_optimiseur(self) -> optim.Optimizer:
@@ -319,6 +335,7 @@ class Entraineur:
         """
         etat = {
             "epoque": epoque,
+            "architecture_modele": getattr(self.modele, "nom_architecture_detection", None),
             "etat_modele": self.modele.state_dict(),
             "etat_optimiseur": self.optimiseur.state_dict(),
             "etat_scheduler": self.scheduler.state_dict(),
@@ -328,13 +345,13 @@ class Entraineur:
         }
 
         # Sauvegarde du dernier checkpoint
-        chemin_dernier = self.dossier_sorties / "dernier_modele.pth"
+        chemin_dernier = self.dossier_sorties / NOM_DERNIER_MODELE
         torch.save(etat, chemin_dernier)
         self._fichiers_checkpoint_crees.add(chemin_dernier)
 
         # Sauvegarde du meilleur modèle si amélioré
         if est_meilleur:
-            chemin_meilleur = self.dossier_sorties / "meilleur_modele.pth"
+            chemin_meilleur = self.dossier_sorties / NOM_MEILLEUR_MODELE
             torch.save(etat, chemin_meilleur)
             self._fichiers_checkpoint_crees.add(chemin_meilleur)
             console.print(
@@ -358,7 +375,14 @@ class Entraineur:
 
         debut_global = time.time()
 
-        for epoque in range(1, self.nombre_epoques + 1):
+        if self.epoque_depart > self.nombre_epoques:
+            console.print(
+                f"[yellow]Aucune époque à entraîner : checkpoint déjà à l'époque "
+                f"{self.epoque_depart - 1} et nombre d'époques demandé = {self.nombre_epoques}[/yellow]"
+            )
+            return self.historique
+
+        for epoque in range(self.epoque_depart, self.nombre_epoques + 1):
             debut_epoque = time.time()
 
             # ── Gestion des phases de dégelage ────────────────────────────────
@@ -470,7 +494,7 @@ class Entraineur:
 
         À appeler avant l'évaluation finale sur le jeu de test.
         """
-        chemin_meilleur = self.dossier_sorties / "meilleur_modele.pth"
+        chemin_meilleur = self.dossier_sorties / NOM_MEILLEUR_MODELE
         if not chemin_meilleur.exists():
             console.print("[yellow]⚠ Aucun meilleur modèle trouvé. Utilisation du modèle courant.[/yellow]")
             return

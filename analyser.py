@@ -11,15 +11,12 @@ Usage :
     python analyser.py --modele modele.pth --images photos/ --seuil 0.4 --sortie resultats.json
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import sys
 from pathlib import Path
-
-import cv2
-import numpy as np
-import torch
-import torchvision.transforms.functional as TF
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -28,18 +25,17 @@ from detection_fissures.analyse.classificateur_fissures import (
     afficher_resultats_classification,
     generer_rapport_classification,
 )
-from detection_fissures.modeles.masque_rcnn import construire_modele_masque_rcnn
-from detection_fissures.utilitaires.dispositif import detecter_dispositif
-
-# Statistiques ImageNet — identiques au Dataset
-_MOYENNE_IMAGENET = [0.485, 0.456, 0.406]
-_ECART_TYPE_IMAGENET = [0.229, 0.224, 0.225]
+from detection_fissures.configuration.parametres import (
+    ARCHITECTURES_MODELES_SEGMENTATION,
+    ConfigurationGlobale,
+)
 
 EXTENSIONS_IMAGES = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
 
 
 def analyser_arguments() -> argparse.Namespace:
     """Parse les arguments de la ligne de commande."""
+    configuration = ConfigurationGlobale()
     analyseur = argparse.ArgumentParser(
         description="Classification des fissures après inférence Mask R-CNN",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -59,8 +55,15 @@ def analyser_arguments() -> argparse.Namespace:
     analyseur.add_argument(
         "--taille-image",
         type=int,
-        default=384,
+        default=configuration.modele.taille_image_min,
         help="Résolution d'entrée du modèle (doit correspondre à l'entraînement)",
+    )
+    analyseur.add_argument(
+        "--architecture",
+        type=str,
+        default=configuration.modele.architecture,
+        choices=ARCHITECTURES_MODELES_SEGMENTATION,
+        help="Architecture utilisée pour reconstruire le modèle",
     )
     analyseur.add_argument(
         "--seuil",
@@ -84,7 +87,7 @@ def analyser_arguments() -> argparse.Namespace:
     analyseur.add_argument(
         "--nombre-classes",
         type=int,
-        default=2,
+        default=configuration.modele.nombre_classes,
         help="Nombre de classes du modèle (doit correspondre à l'entraînement)",
     )
     return analyseur.parse_args()
@@ -94,8 +97,9 @@ def charger_modele(
     chemin_pth: str | Path,
     nombre_classes: int,
     taille_image: int,
-    dispositif: torch.device,
-) -> torch.nn.Module:
+    architecture: str,
+    dispositif: object,
+) -> object:
     """
     Charge le modèle Mask R-CNN depuis un checkpoint .pth.
 
@@ -103,6 +107,7 @@ def charger_modele(
         chemin_pth    : Chemin vers le fichier checkpoint.
         nombre_classes : Nombre de classes (doit correspondre au modèle sauvegardé).
         taille_image  : Taille d'image utilisée à l'entraînement.
+        architecture  : Architecture Mask R-CNN utilisée.
         dispositif    : Dispositif de calcul.
 
     Returns:
@@ -112,16 +117,26 @@ def charger_modele(
     if not chemin_pth.exists():
         raise FileNotFoundError(f"Modèle introuvable : {chemin_pth}")
 
+    import torch
+
+    from detection_fissures.modeles.masque_rcnn import construire_modele_masque_rcnn
+
+    checkpoint = torch.load(chemin_pth, map_location=dispositif, weights_only=False)
+    architecture_checkpoint = (
+        checkpoint.get("architecture_modele", architecture)
+        if isinstance(checkpoint, dict)
+        else architecture
+    ) or architecture
+
     modele = construire_modele_masque_rcnn(
         nombre_classes=nombre_classes,
+        architecture=architecture_checkpoint,
         taille_image_min=taille_image,
         taille_image_max=taille_image,
     )
 
-    checkpoint = torch.load(chemin_pth, map_location=dispositif, weights_only=False)
-
     # Le checkpoint peut contenir "etat_modele" (format Entraineur) ou les poids directs
-    if "etat_modele" in checkpoint:
+    if isinstance(checkpoint, dict) and "etat_modele" in checkpoint:
         modele.load_state_dict(checkpoint["etat_modele"])
         epoque = checkpoint.get("epoque", "?")
         map_50 = checkpoint.get("metriques", {}).get("map_50", 0.0)
@@ -138,15 +153,15 @@ def charger_modele(
 def preparer_image(
     chemin_image: str | Path,
     taille_image: int,
-    dispositif: torch.device,
-) -> tuple[torch.Tensor, int, int]:
+    dispositif: object,
+) -> tuple[object, int, int]:
     """
     Charge et prépare une image pour l'inférence.
 
     Applique les mêmes transformations que le Dataset d'entraînement :
         1. Chargement BGR → RGB
         2. Redimensionnement à taille_image × taille_image
-        3. Normalisation ImageNet
+        3. Conversion en tenseur float [0, 1]
 
     Args:
         chemin_image : Chemin de l'image.
@@ -154,23 +169,17 @@ def preparer_image(
         dispositif   : Dispositif de calcul.
 
     Returns:
-        Tuple (tenseur normalisé, largeur_originale, hauteur_originale).
+        Tuple (tenseur image, largeur_originale, hauteur_originale).
     """
-    image_bgr = cv2.imread(str(chemin_image))
-    if image_bgr is None:
-        raise FileNotFoundError(f"Image illisible : {chemin_image}")
-
-    hauteur_orig, largeur_orig = image_bgr.shape[:2]
-    image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-
-    image_redim = cv2.resize(
-        image_rgb,
-        (taille_image, taille_image),
-        interpolation=cv2.INTER_LINEAR,
+    from detection_fissures.utilitaires.images import (
+        charger_image_rgb,
+        image_rgb_vers_tenseur,
+        redimensionner_image_carree,
     )
 
-    tenseur = torch.from_numpy(image_redim).permute(2, 0, 1).float() / 255.0
-    tenseur = TF.normalize(tenseur, mean=_MOYENNE_IMAGENET, std=_ECART_TYPE_IMAGENET)
+    image_rgb, largeur_orig, hauteur_orig = charger_image_rgb(chemin_image)
+    image_redim = redimensionner_image_carree(image_rgb, taille_image)
+    tenseur = image_rgb_vers_tenseur(image_redim)
     tenseur = tenseur.unsqueeze(0).to(dispositif)
 
     return tenseur, largeur_orig, hauteur_orig
@@ -188,6 +197,10 @@ def main() -> None:
     """
     args = analyser_arguments()
 
+    import torch
+
+    from detection_fissures.utilitaires.dispositif import detecter_dispositif
+
     # ── Dispositif ────────────────────────────────────────────────────────────
     dispositif = detecter_dispositif(
         forcer=None if args.dispositif == "auto" else args.dispositif
@@ -199,6 +212,7 @@ def main() -> None:
         chemin_pth=args.modele,
         nombre_classes=args.nombre_classes,
         taille_image=args.taille_image,
+        architecture=args.architecture,
         dispositif=dispositif,
     )
 
