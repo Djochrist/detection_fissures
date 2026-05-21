@@ -19,10 +19,16 @@ NOM_DERNIER_MODELE = "dernier_modele.pth"
 NOM_HISTORIQUE_ENTRAINEMENT = "historique_entrainement.json"
 
 ARCHITECTURE_MASKRCNN_RESNET50_FPN_V2 = "maskrcnn_resnet50_fpn_v2"
-ARCHITECTURE_MASKRCNN_RESNET50_FPN = "maskrcnn_resnet50_fpn"
-ARCHITECTURES_MODELES_SEGMENTATION: tuple[str, str] = (
+ARCHITECTURES_MODELES_SEGMENTATION: tuple[str, ...] = (
     ARCHITECTURE_MASKRCNN_RESNET50_FPN_V2,
-    ARCHITECTURE_MASKRCNN_RESNET50_FPN,
+)
+MODELE_YOLOV11_SEG_DEFAUT = "yolo11n-seg.pt"
+MODELES_YOLOV11_SEG_OFFICIELS: tuple[str, ...] = (
+    "yolo11n-seg.pt",
+    "yolo11s-seg.pt",
+    "yolo11m-seg.pt",
+    "yolo11l-seg.pt",
+    "yolo11x-seg.pt",
 )
 
 

@@ -2,14 +2,13 @@
 Package des architectures de modèles de segmentation.
 
 Modèles — segmentation d'INSTANCE :
-    Mask R-CNN ResNet50-FPN-V2  (torchvision, défaut)
-    Mask R-CNN ResNet50-FPN     (torchvision, benchmark alternatif)
+    Mask R-CNN ResNet50-FPN-V2  (torchvision)
+    YOLOv11-seg                 (Ultralytics, entraînement séparé)
     → Détecte et segmente chaque fissure séparément
-    → Format COCO natif, analyse géométrique par instance
+    → Format COCO natif pour Mask, conversion YOLO-seg pour YOLOv11
 """
 from .masque_rcnn import (
     ARCHITECTURES_MASK_RCNN,
-    ARCHITECTURE_MASKRCNN_RESNET50_FPN,
     ARCHITECTURE_MASKRCNN_RESNET50_FPN_V2,
     construire_modele_masque_rcnn,
     geler_backbone,
@@ -21,7 +20,6 @@ from .masque_rcnn import (
 
 __all__ = [
     "ARCHITECTURES_MASK_RCNN",
-    "ARCHITECTURE_MASKRCNN_RESNET50_FPN",
     "ARCHITECTURE_MASKRCNN_RESNET50_FPN_V2",
     "construire_modele_masque_rcnn",
     "geler_backbone",

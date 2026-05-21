@@ -1,11 +1,12 @@
-# Détection de Fissures Structurelles — Mask R-CNN
+# Détection de Fissures Structurelles — Mask R-CNN et YOLOv11
 
 Segmentation d'instance de fissures sur structures (béton, maçonnerie)
-basée sur **Mask R-CNN** (torchvision), avec deux architectures
-fine-tunables sur les fissures :
+avec deux modèles entraînables :
 
-- `maskrcnn_resnet50_fpn_v2` : modèle principal recommandé.
-- `maskrcnn_resnet50_fpn` : modèle alternatif pour benchmark comparatif.
+- **Mask R-CNN** (`maskrcnn_resnet50_fpn_v2`) : modèle principal précis,
+  entraîné directement depuis le dataset COCO.
+- **YOLOv11-seg** (`yolo11n-seg.pt`, `yolo11s-seg.pt`, etc.) : modèle rapide
+  entraîné via Ultralytics après conversion automatique COCO → YOLO-seg.
 
 ---
 
@@ -15,7 +16,8 @@ fine-tunables sur les fissures :
 detection_fissures/
 │
 ├── pyproject.toml              # Dépendances (UV)
-├── entrainer.py                # Script d'entraînement principal
+├── entrainer.py                # Entraînement Mask R-CNN
+├── entrainer_yolo.py           # Entraînement YOLOv11-seg
 ├── analyser.py                 # Script de classification post-entraînement
 │
 ├── configuration/
@@ -23,10 +25,11 @@ detection_fissures/
 │
 ├── donnees/
 │   ├── jeu_donnees_coco.py     # Dataset PyTorch au format COCO
-│   └── chargeur.py             # DataLoaders avec collate_fn
+│   ├── chargeur.py             # DataLoaders avec collate_fn
+│   └── conversion_yolo.py      # Conversion COCO vers YOLO-seg
 │
 ├── modeles/
-│   └── masque_rcnn.py          # Factories Mask R-CNN V2 et FPN classique
+│   └── masque_rcnn.py          # Factory Mask R-CNN
 │
 ├── entrainement/
 │   ├── entraineur.py           # Boucle d'entraînement + early stopping
@@ -67,7 +70,9 @@ dataset/
 ```
 
 Le fichier d'annotations doit être au format **COCO** (export Roboflow).
-Aucun prétraitement supplémentaire n'est appliqué — le dataset est utilisé tel quel.
+Pour Mask R-CNN, le dataset est utilisé tel quel.
+Pour YOLOv11-seg, `entrainer_yolo.py` génère automatiquement une copie
+YOLO-seg dans le dossier de sortie.
 Les images sont fournies aux modèles sous forme de tenseurs float `[0, 1]`.
 La normalisation attendue par Mask R-CNN est gérée par le transform interne
 de `torchvision`.
@@ -85,9 +90,23 @@ cd detection_fissures
 uv sync
 ```
 
+Vérification locale :
+
+```bash
+uv run python -c "import torch, torchvision, torchmetrics, cv2, pycocotools; print('OK')"
+uv run python entrainer.py --help
+uv run python entrainer_yolo.py --help
+```
+
+Guides complets :
+
+- Local avec uv : [documentation/guide_local_uv.md](documentation/guide_local_uv.md)
+- Google Colab avec dataset sur Drive : [documentation/guide_colab.md](documentation/guide_colab.md)
+- Kaggle : [documentation/guide_kaggle.md](documentation/guide_kaggle.md)
+
 ---
 
-## Dataset, GitHub et Colab
+## Dataset, GitHub, Colab et Kaggle
 
 - Ne pousse pas le dossier `dataset/` sur GitHub. Le dataset est ignoré dans `.gitignore`.
 - Stocke ton dataset sur Google Drive, un stockage externe ou un lien Roboflow.
@@ -95,8 +114,13 @@ uv sync
 - Indique le dossier du dataset avec `--donnees /content/drive/MyDrive/dataset`.
 - Indique le dossier de sauvegarde avec `--sorties /content/drive/MyDrive/detection_fissures_sorties_*`.
 - Si Colab coupe l'exécution, relance avec `--resume /content/drive/MyDrive/.../modeles/dernier_modele.pth`.
+- Sur Kaggle, utilise `/kaggle/input/...` pour le dataset et `/kaggle/working/...`
+  pour les sorties. Voir [documentation/guide_kaggle.md](documentation/guide_kaggle.md).
 
 ### Commandes complètes pour Google Colab
+
+Le guide détaillé de bout en bout est ici :
+[documentation/guide_colab.md](documentation/guide_colab.md).
 
 Monter Google Drive pour accéder au dataset et sauvegarder les checkpoints :
 
@@ -123,7 +147,7 @@ git pull origin main
 Installer les dépendances :
 
 ```bash
-pip install -U torch torchvision opencv-python numpy scipy pycocotools "torchmetrics[detection]" rich
+pip install -U torch torchvision opencv-python numpy scipy pycocotools "torchmetrics[detection]" rich ultralytics
 ```
 
 Structure du dataset sur Drive, à passer au script avec `--donnees /content/drive/MyDrive/dataset` :
@@ -141,7 +165,7 @@ Structure du dataset sur Drive, à passer au script avec `--donnees /content/dri
     └── images...
 ```
 
-### Modèle 1 — Mask R-CNN recommandé
+### Modèle 1 — Mask R-CNN
 
 ```bash
 python entrainer.py \
@@ -155,19 +179,22 @@ python entrainer.py \
   --dispositif cuda
 ```
 
-### Modèle 2 — Mask R-CNN alternatif
+### Modèle 2 — YOLOv11-seg
 
 ```bash
-python entrainer.py \
-  --architecture maskrcnn_resnet50_fpn \
+python entrainer_yolo.py \
   --donnees /content/drive/MyDrive/dataset \
-  --sorties /content/drive/MyDrive/detection_fissures_sorties_mask_fpn \
+  --sorties /content/drive/MyDrive/detection_fissures_sorties_yolo11 \
+  --modele yolo11n-seg.pt \
   --epoques 100 \
-  --lot 4 \
-  --lr 5e-5 \
+  --lot 8 \
+  --lr 1e-4 \
   --taille-image 384 \
   --dispositif cuda
 ```
+
+Pour un GPU plus puissant, vous pouvez remplacer `yolo11n-seg.pt` par
+`yolo11s-seg.pt`, `yolo11m-seg.pt`, `yolo11l-seg.pt` ou `yolo11x-seg.pt`.
 
 ### Reprendre un entraînement interrompu
 
@@ -186,7 +213,7 @@ python entrainer.py \
   --resume /content/drive/MyDrive/detection_fissures_sorties_mask_v2/modeles/dernier_modele.pth
 ```
 
-### Analyse après entraînement
+### Analyse après entraînement Mask R-CNN
 
 ```bash
 python analyser.py \
@@ -196,24 +223,8 @@ python analyser.py \
   --seuil 0.5
 ```
 
-### U-Net
-
-Le dépôt actuel ne contient pas encore d'implémentation U-Net. Il n'existe donc
-pas encore de commande exécutable pour U-Net dans ce projet.
-
-La commande prévue, une fois `entrainer_unet.py` et le modèle U-Net ajoutés,
-serait :
-
-```bash
-python entrainer_unet.py \
-  --donnees /content/drive/MyDrive/dataset \
-  --sorties /content/drive/MyDrive/detection_fissures_sorties_unet \
-  --epoques 100 \
-  --lot 8 \
-  --lr 1e-4 \
-  --taille-image 384 \
-  --dispositif cuda
-```
+Les résultats YOLOv11 sont sauvegardés par Ultralytics dans
+`detection_fissures_sorties_yolo11/entrainements/`.
 
 ---
 
@@ -221,10 +232,8 @@ python entrainer_unet.py \
 
 ### 1. Entraînement
 ```bash
-python entrainer.py
-python entrainer.py --architecture maskrcnn_resnet50_fpn_v2 --donnees /chemin/vers/dataset --epoques 100 --lot 8 --lr 5e-5
-python entrainer.py --architecture maskrcnn_resnet50_fpn --donnees /chemin/vers/dataset --sorties sorties_fpn_v1
-python entrainer.py --dispositif cuda
+python entrainer.py --architecture maskrcnn_resnet50_fpn_v2 --donnees /chemin/vers/dataset --dispositif cuda
+python entrainer_yolo.py --donnees /chemin/vers/dataset --modele yolo11n-seg.pt --dispositif cuda
 ```
 
 Les checkpoints conservent l'architecture utilisée, ce qui permet à `analyser.py`

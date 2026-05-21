@@ -189,17 +189,18 @@ de détail en même temps :
 
 Sans le FPN, le modèle manquerait soit les grandes fissures soit les petites.
 
-### Pourquoi Mask R-CNN et pas YOLO ou autre chose ?
+### Pourquoi Mask R-CNN et YOLOv11, et pas autre chose ?
 
-| Question | Mask R-CNN | YOLO |
+| Question | Mask R-CNN ResNet50-FPN-V2 | YOLOv11-seg |
 |---|---|---|
-| Segmentation d'instance ? | Oui — chaque fissure a son propre masque | Oui mais moins précis |
-| Précision des masques ? | Très haute | Correcte |
-| Adapté à petit dataset ? | Oui (transfer learning COCO) | Oui mais moins |
-| Analyse géométrique possible ? | Oui — masques précis | Difficile |
+| Segmentation d'instance ? | Oui — chaque fissure a son propre masque | Oui — chaque fissure a son propre masque |
+| Précision des masques ? | Très haute | Bonne, avec une vitesse élevée |
+| Adapté à petit dataset ? | Oui, grâce au transfer learning COCO | Oui, via les poids YOLOv11 préentraînés |
+| Analyse géométrique possible ? | Oui — pipeline principal d'analyse | Oui — surtout pour comparaison vitesse/précision |
 
 Pour analyser la **largeur, l'orientation et la longueur** de chaque fissure, on a besoin de
-masques très précis pixel par pixel. C'est pourquoi Mask R-CNN est le meilleur choix ici.
+masques précis pixel par pixel. Le projet garde donc uniquement deux modèles crédibles :
+Mask R-CNN ResNet50-FPN-V2 pour la précision et YOLOv11-seg pour la rapidité et le déploiement.
 
 ---
 
@@ -691,4 +692,3 @@ ls dataset/train/ | head -5
 ```
 
 ---
-

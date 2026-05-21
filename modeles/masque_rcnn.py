@@ -6,11 +6,11 @@ POURQUOI MASK R-CNN POUR CE PROJET ?
 
 Contexte : dataset COCO avec segmentation d'INSTANCE (4700 images, 384×384)
 
-Comparaison des architectures 2025-2026 :
+Modèles retenus pour ce projet :
 ──────────────────────────────────────────
 
-1. MASK R-CNN (NOTRE CHOIX) ✓
-   Architecture : ResNet-50 + FPN + RPN + ROI Align + Masque
+1. MASK R-CNN RESNET50-FPN-V2 ✓
+   Architecture : ResNet-50 + FPN + RPN + ROI Align + masque
    Forces :
      - Segmentation d'instance nativement (chaque fissure = objet séparé)
      - Format COCO directement supporté par torchvision
@@ -21,34 +21,14 @@ Comparaison des architectures 2025-2026 :
      - Plus lent que YOLO (non critique ici, pas de temps-réel)
      - Peut manquer des fissures très fines (< 2px) → géré par FPN
 
-2. YOLO11-seg ✗ (pour notre usage)
-   Forces : Temps-réel, léger, facile à déployer
-   Faiblesses pour nous :
-     - Tête de segmentation moins précise (masks 28×28 upsampled)
-     - Moins adapté à l'analyse géométrique fine post-segmentation
-     - Nécessite format YOLO (conversion depuis COCO nécessaire)
+2. YOLOv11-seg ✓
+   Forces :
+     - Temps-réel, léger, facile à déployer
+     - Très utile pour comparer vitesse/précision face à Mask R-CNN
+   Point d'attention :
+     - Nécessite une conversion COCO vers YOLO-seg, gérée par entrainer_yolo.py
 
-3. Mask2Former ✗
-   Forces : État de l'art 2024, query-based, excellente précision
-   Faiblesses pour nous :
-     - Nécessite ~100k images pour bien converger
-     - Très lourd (300M+ paramètres), risque d'overfitting sur 4700 images
-     - Complexité d'implémentation élevée
-
-4. SegFormer ✗
-   Forces : Segmentation sémantique légère et efficace
-   Faiblesses pour nous :
-     - Segmentation SÉMANTIQUE seulement (pas d'instances séparées)
-     - Transformers nécessitent beaucoup de données
-     - Ne supporte pas directement le format COCO d'instance
-
-5. SAM3 ✗  (successeur de SAM2, Meta 2025)
-   Forces : Segmentation vidéo + image généraliste, qualité masque élevée
-   Faiblesses pour nous :
-     - AutomaticMaskGenerator sur-segmente tout sans supervision (pas spécifique aux fissures)
-     - Pas d'entraînement supervisé fin sur dataset custom → précision/rappel non contrôlés
-     - Aucune métrique COCO native, pas de pipeline d'entraînement structuré
-     - Adapté à la segmentation promptée interactive, pas à la détection autonome
+Aucun autre modèle n'est exposé par le code d'entraînement.
 
 ARCHITECTURE MASK R-CNN DÉTAILLÉE :
 ─────────────────────────────────────
@@ -71,20 +51,18 @@ ROI Align (extraction de features par région)
 Prédictions : boîtes + scores + masques binaires
 """
 
-from typing import Any, Callable, Dict
+from typing import Any, Dict
 
 import torch.nn as nn
 import torchvision
 from torchvision.models.detection import (
     MaskRCNN,
-    MaskRCNN_ResNet50_FPN_Weights,
     MaskRCNN_ResNet50_FPN_V2_Weights,
 )
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
 
 from ..configuration.parametres import (
-    ARCHITECTURE_MASKRCNN_RESNET50_FPN,
     ARCHITECTURE_MASKRCNN_RESNET50_FPN_V2,
     ARCHITECTURES_MODELES_SEGMENTATION,
 )
@@ -100,10 +78,7 @@ def _resoudre_poids_mask_rcnn(
     if poids_preentraine is None:
         return None
 
-    poids_par_defaut = {
-        ARCHITECTURE_MASKRCNN_RESNET50_FPN_V2: MaskRCNN_ResNet50_FPN_V2_Weights.DEFAULT,
-        ARCHITECTURE_MASKRCNN_RESNET50_FPN: MaskRCNN_ResNet50_FPN_Weights.DEFAULT,
-    }[architecture]
+    poids_par_defaut = MaskRCNN_ResNet50_FPN_V2_Weights.DEFAULT
 
     if not isinstance(poids_preentraine, str):
         return poids_preentraine
@@ -166,7 +141,7 @@ def construire_modele_masque_rcnn(
 
     Args:
         nombre_classes : Nombre de classes + 1 fond. Ici : 2 (fond + fissure).
-        architecture : Variante Mask R-CNN torchvision à instancier.
+        architecture : Doit valoir maskrcnn_resnet50_fpn_v2.
         poids_preentraine : "DEFAULT" = poids COCO préentraînés.
         nom_backbone : Backbone ResNet. 'resnet50' recommandé.
         seuil_score_detection : Confiance minimale pour conserver une détection.
@@ -180,18 +155,17 @@ def construire_modele_masque_rcnn(
     """
     if architecture not in ARCHITECTURES_MASK_RCNN:
         architectures = ", ".join(ARCHITECTURES_MASK_RCNN)
-        raise ValueError(f"Architecture inconnue : {architecture}. Choix : {architectures}")
+        raise ValueError(
+            f"Architecture non autorisée : {architecture}. "
+            f"Le projet expose uniquement : {architectures}"
+        )
 
     if nom_backbone != "resnet50":
         raise ValueError("Les architectures disponibles utilisent le backbone 'resnet50'.")
 
-    constructeurs: dict[str, Callable[..., MaskRCNN]] = {
-        ARCHITECTURE_MASKRCNN_RESNET50_FPN_V2: torchvision.models.detection.maskrcnn_resnet50_fpn_v2,
-        ARCHITECTURE_MASKRCNN_RESNET50_FPN: torchvision.models.detection.maskrcnn_resnet50_fpn,
-    }
     poids_modele = _resoudre_poids_mask_rcnn(architecture, poids_preentraine)
 
-    modele = constructeurs[architecture](
+    modele = torchvision.models.detection.maskrcnn_resnet50_fpn_v2(
         weights=poids_modele,
         # Paramètres de détection adaptés aux fissures
         box_score_thresh=seuil_score_detection,

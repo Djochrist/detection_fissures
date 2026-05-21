@@ -63,7 +63,7 @@ def analyser_arguments() -> argparse.Namespace:
         type=str,
         default=configuration.modele.architecture,
         choices=ARCHITECTURES_MODELES_SEGMENTATION,
-        help="Architecture utilisée pour reconstruire le modèle",
+        help="Architecture Mask R-CNN utilisée pour reconstruire le modèle",
     )
     analyseur.add_argument(
         "--seuil",

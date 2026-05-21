@@ -90,7 +90,7 @@ def analyser_arguments() -> argparse.Namespace:
         type=str,
         default=configuration.modele.architecture,
         choices=ARCHITECTURES_MODELES_SEGMENTATION,
-        help="Architecture Mask R-CNN torchvision à fine-tuner",
+        help="Architecture Mask R-CNN autorisée pour ce projet",
     )
     analyseur.add_argument(
         "--dispositif",

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "detection-fissures"
 version = "1.0.0"
-description = "Détection et segmentation de fissures structurelles par Mask R-CNN"
+description = "Détection et segmentation de fissures structurelles par Mask R-CNN ResNet50-FPN-V2 et YOLOv11"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -29,6 +29,9 @@ dependencies = [
     # Format COCO
     "pycocotools>=2.0.7",
 
+    # YOLOv11 segmentation
+    "ultralytics>=8.3.0",
+
     # Journalisation
     "rich>=13.7.0",
 ]
@@ -43,9 +46,23 @@ dev = [
 [project.scripts]
 entrainer = "detection_fissures.entrainer:main"
 analyser  = "detection_fissures.analyser:main"
+entrainer-yolo = "detection_fissures.entrainer_yolo:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["."]
+packages = [
+    "detection_fissures",
+    "analyse",
+    "configuration",
+    "donnees",
+    "entrainement",
+    "modeles",
+    "utilitaires",
+]
+
+[tool.hatch.build.targets.wheel.force-include]
+"entrainer.py" = "detection_fissures/entrainer.py"
+"entrainer_yolo.py" = "detection_fissures/entrainer_yolo.py"
+"analyser.py" = "detection_fissures/analyser.py"
 
 [tool.uv]
 dev-dependencies = [
