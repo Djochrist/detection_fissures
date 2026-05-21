@@ -176,6 +176,7 @@ python entrainer.py \
   --lot 4 \
   --lr 5e-5 \
   --taille-image 384 \
+  --seuil-score 0.05 \
   --dispositif cuda
 ```
 
@@ -190,11 +191,16 @@ python entrainer_yolo.py \
   --lot 8 \
   --lr 1e-4 \
   --taille-image 384 \
+  --save-period 5 \
   --dispositif cuda
 ```
 
 Pour un GPU plus puissant, vous pouvez remplacer `yolo11n-seg.pt` par
 `yolo11s-seg.pt`, `yolo11m-seg.pt`, `yolo11l-seg.pt` ou `yolo11x-seg.pt`.
+Le script YOLO affiche maintenant un résumé du dataset converti, la configuration,
+les métriques par époque quand Ultralytics les expose, puis un tableau validation/test
+avec précision, rappel, F1 score et mAP.
+Ajoutez `--silencieux` seulement si vous voulez réduire ces journaux.
 
 ### Reprendre un entraînement interrompu
 

@@ -110,7 +110,10 @@ class ParametresModele:
     taille_image_min: int = 384
     taille_image_max: int = 384
 
-    seuil_score_detection: float = 0.5
+    # Seuil bas recommandé pour l'évaluation COCO/mAP : AP construit sa courbe
+    # précision-rappel depuis les scores. Un seuil à 0.5 tronque les candidats
+    # et peut sous-estimer fortement le rappel des fissures fines.
+    seuil_score_detection: float = 0.05
     seuil_iou_nms: float = 0.3
     seuil_masque: float = 0.5
     detections_max_par_image: int = 100

@@ -348,7 +348,7 @@ def _journaliser_structures_map(
 def calculer_metriques_segmentation(
     predictions: List[Dict[str, torch.Tensor]],
     cibles: List[Dict[str, torch.Tensor]],
-    journaliser: bool = True,
+    journaliser: bool = False,
     max_elements_journal: int = 3,
 ) -> Dict[str, float]:
     """
@@ -441,7 +441,9 @@ def calculer_metriques_segmentation(
         "mar_100": float(resultats.get("mar_100", 0.0)),
     }
 
-    # Calcul pixel-level Précision, Rappel, F1 depuis masques d'instance
+    # Calcul pixel-level Précision, Rappel, F1 depuis l'union des instances.
+    # Sur les images multi-fissures, comparer seulement le premier masque biaise
+    # fortement les métriques et ne reflète pas la couverture réelle.
     precision_list, rappel_list, f1_list = [], [], []
     for index, (pred, cible) in enumerate(zip(predictions, cibles)):
         try:
@@ -452,8 +454,8 @@ def calculer_metriques_segmentation(
             continue
 
         if len(masques_pred) > 0 and len(masques_cible) > 0:
-            masque_predit = masques_pred[0].astype(bool)
-            masque_verite = masques_cible[0].astype(bool)
+            masque_predit = np.any(masques_pred.astype(bool), axis=0)
+            masque_verite = np.any(masques_cible.astype(bool), axis=0)
 
             if masque_predit.shape == masque_verite.shape:
                 p, r, f1 = calculer_precision_rappel_f1(masque_predit, masque_verite)

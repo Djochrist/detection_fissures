@@ -114,6 +114,7 @@ Si Colab donne `CUDA out of memory`, relance avec `--lot 1`.
   --lot 2 \
   --lr 5e-5 \
   --taille-image 384 \
+  --seuil-score 0.05 \
   --dispositif cuda \
   --resume "$SORTIES_MASK/modeles/dernier_modele.pth"
 ```
@@ -129,10 +130,14 @@ Si Colab donne `CUDA out of memory`, relance avec `--lot 1`.
   --lot 8 \
   --lr 1e-4 \
   --taille-image 384 \
+  --save-period 5 \
   --dispositif cuda
 ```
 
 Si la mémoire manque, utilise `--lot 4` ou `--lot 2`.
+Le script affiche un résumé du dataset YOLO converti, la configuration
+d'entraînement, les métriques par époque quand Ultralytics les fournit, puis les
+métriques validation/test finales avec précision, rappel, F1 score et mAP.
 
 ## 10. Fichiers à récupérer
 
@@ -150,4 +155,3 @@ YOLOv11 :
 $SORTIES_YOLO/entrainements/
 $SORTIES_YOLO/evaluations/
 ```
-

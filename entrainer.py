@@ -86,6 +86,12 @@ def analyser_arguments() -> argparse.Namespace:
         help="Résolution des images (carré, en pixels)",
     )
     analyseur.add_argument(
+        "--seuil-score",
+        type=float,
+        default=configuration.modele.seuil_score_detection,
+        help="Score minimal de détection Mask R-CNN avant NMS/évaluation",
+    )
+    analyseur.add_argument(
         "--architecture",
         type=str,
         default=configuration.modele.architecture,
@@ -234,6 +240,7 @@ def main() -> None:
     config.modele.taille_image_min = args.taille_image
     config.modele.taille_image_max = args.taille_image
     config.modele.architecture = args.architecture
+    config.modele.seuil_score_detection = args.seuil_score
 
     config.chemins.definir_racine_donnees(chemin_donnees)
     config.chemins.definir_racine_sorties(args.sorties)
@@ -322,7 +329,11 @@ def main() -> None:
             toutes_predictions.extend([{k: v.cpu() for k, v in p.items()} for p in predictions])
             toutes_cibles.extend(cibles)
 
-    metriques_test = calculer_metriques_segmentation(toutes_predictions, toutes_cibles)
+    metriques_test = calculer_metriques_segmentation(
+        toutes_predictions,
+        toutes_cibles,
+        journaliser=False,
+    )
     print("\n[RÉSULTATS FINAUX — JEU DE TEST]")
     afficher_tableau_metriques(metriques_test)
 
@@ -337,6 +348,7 @@ def main() -> None:
                     "taux_apprentissage": args.lr,
                     "patience": args.patience,
                     "taille_image": args.taille_image,
+                    "seuil_score": args.seuil_score,
                     "architecture": args.architecture,
                     "graine": args.graine,
                 },
