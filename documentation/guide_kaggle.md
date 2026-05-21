@@ -130,7 +130,9 @@ YOLOv11 convertit automatiquement le COCO vers YOLO-seg dans le dossier de sorti
   --modele yolo11n-seg.pt \
   --epoques 50 \
   --lot 8 \
-  --lr 1e-4 \
+  --lr 3e-4 \
+  --weight-decay 1e-4 \
+  --patience 15 \
   --taille-image 384 \
   --dispositif cuda
 ```
@@ -144,7 +146,9 @@ Pour un modèle plus fort si le GPU tient :
   --modele yolo11s-seg.pt \
   --epoques 50 \
   --lot 4 \
-  --lr 1e-4 \
+  --lr 3e-4 \
+  --weight-decay 1e-4 \
+  --patience 15 \
   --taille-image 384 \
   --dispositif cuda
 ```
@@ -156,6 +160,16 @@ l'exécution du Notebook. Avant de fermer Kaggle, vérifie :
 
 ```bash
 !find /kaggle/working -maxdepth 4 -type f \( -name "*.pth" -o -name "*.pt" -o -name "*.json" -o -name "results.csv" \) -print
+```
+
+Pour reprendre YOLOv11-seg depuis un ancien output Kaggle :
+
+```bash
+!python entrainer_yolo.py \
+  --donnees "$DATASET" \
+  --sorties /kaggle/working/sorties_yolo11 \
+  --resume /kaggle/input/ancien-output/sorties_yolo11/entrainements/yolo11_seg_fissures/weights/last.pt \
+  --dispositif cuda
 ```
 
 Pour reprendre Mask R-CNN dans une nouvelle session, ajoute l'ancien output comme

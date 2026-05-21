@@ -189,7 +189,9 @@ python entrainer_yolo.py \
   --modele yolo11n-seg.pt \
   --epoques 100 \
   --lot 8 \
-  --lr 1e-4 \
+  --lr 3e-4 \
+  --weight-decay 1e-4 \
+  --patience 15 \
   --taille-image 384 \
   --save-period 5 \
   --dispositif cuda
@@ -203,6 +205,16 @@ avec précision, rappel, F1 score et mAP.
 Ajoutez `--silencieux` seulement si vous voulez réduire ces journaux.
 
 ### Reprendre un entraînement interrompu
+
+Exemple pour reprendre YOLOv11-seg depuis le dernier checkpoint :
+
+```bash
+python entrainer_yolo.py \
+  --donnees /content/drive/MyDrive/dataset \
+  --sorties /content/drive/MyDrive/detection_fissures_sorties_yolo11 \
+  --resume /content/drive/MyDrive/detection_fissures_sorties_yolo11/entrainements/yolo11_seg_fissures/weights/last.pt \
+  --dispositif cuda
+```
 
 Exemple pour reprendre le modèle Mask R-CNN recommandé :
 

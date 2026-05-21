@@ -50,8 +50,14 @@ def analyser_arguments() -> argparse.Namespace:
     analyseur.add_argument("--epoques", type=int, default=100)
     analyseur.add_argument("--lot", type=int, default=8, help="Batch size")
     analyseur.add_argument("--taille-image", type=int, default=384, help="imgsz YOLO")
-    analyseur.add_argument("--lr", type=float, default=1e-4, help="lr0 Ultralytics")
-    analyseur.add_argument("--patience", type=int, default=20)
+    analyseur.add_argument("--lr", type=float, default=3e-4, help="lr0 Ultralytics")
+    analyseur.add_argument(
+        "--weight-decay",
+        type=float,
+        default=1e-4,
+        help="Décroissance des poids Ultralytics",
+    )
+    analyseur.add_argument("--patience", type=int, default=15, help="Patience early stopping")
     analyseur.add_argument("--workers", type=int, default=2)
     analyseur.add_argument(
         "--save-period",
@@ -86,6 +92,12 @@ def analyser_arguments() -> argparse.Namespace:
         "--exist-ok",
         action="store_true",
         help="Autorise Ultralytics à réutiliser un dossier d'expérience existant",
+    )
+    analyseur.add_argument(
+        "--resume",
+        type=str,
+        default=None,
+        help="Reprend un entraînement YOLO depuis un checkpoint last.pt",
     )
     analyseur.add_argument(
         "--silencieux",
@@ -261,6 +273,9 @@ def main() -> None:
     verifier_modele_yolov11_seg(args.modele)
     racine_sorties = Path(args.sorties).expanduser().resolve()
     racine_dataset_yolo = racine_sorties / "dataset_yolo"
+    checkpoint_resume = Path(args.resume).expanduser().resolve() if args.resume else None
+    if checkpoint_resume is not None and not checkpoint_resume.is_file():
+        raise FileNotFoundError(f"Checkpoint YOLO de reprise introuvable : {checkpoint_resume}")
 
     from detection_fissures.donnees.conversion_yolo import convertir_dataset_coco_vers_yolo
 
@@ -292,12 +307,15 @@ def main() -> None:
     print(f"  Batch       : {args.lot}")
     print(f"  Image       : {args.taille_image}")
     print(f"  LR initial  : {args.lr}")
+    print(f"  Weight decay: {args.weight_decay}")
     print(f"  Patience    : {args.patience}")
     print(f"  Workers     : {args.workers}")
     print(f"  Dispositif  : {args.dispositif}")
+    if checkpoint_resume is not None:
+        print(f"  Reprise     : {checkpoint_resume}")
     print("═" * 55 + "\n")
 
-    modele = YOLO(args.modele)
+    modele = YOLO(str(checkpoint_resume) if checkpoint_resume is not None else args.modele)
     installer_journaux_yolo(modele, actif=not args.silencieux)
     resultats = modele.train(
         data=str(chemin_yaml),
@@ -306,12 +324,14 @@ def main() -> None:
         imgsz=args.taille_image,
         batch=args.lot,
         lr0=args.lr,
+        weight_decay=args.weight_decay,
         patience=args.patience,
         device=_device_ultralytics(args.dispositif),
         workers=args.workers,
         project=str(racine_sorties / "entrainements"),
         name=args.nom,
         exist_ok=args.exist_ok,
+        resume=checkpoint_resume is not None,
         verbose=not args.silencieux,
         plots=True,
         val=True,

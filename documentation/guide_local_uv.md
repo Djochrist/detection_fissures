@@ -116,14 +116,26 @@ uv run python entrainer_yolo.py \
   --modele yolo11n-seg.pt \
   --epoques 50 \
   --lot 8 \
-  --lr 1e-4 \
+  --lr 3e-4 \
+  --weight-decay 1e-4 \
+  --patience 15 \
   --taille-image 384 \
   --dispositif cuda
 ```
 
 Pour un GPU plus petit, utilise `--lot 4` ou `--lot 2`.
 
-## 8. Reprendre Mask R-CNN
+## 8. Reprendre YOLOv11-seg
+
+```bash
+uv run python entrainer_yolo.py \
+  --donnees "$DATASET" \
+  --sorties sorties_yolo11 \
+  --resume sorties_yolo11/entrainements/yolo11_seg_fissures/weights/last.pt \
+  --dispositif cuda
+```
+
+## 9. Reprendre Mask R-CNN
 
 ```bash
 uv run python entrainer.py \
@@ -137,4 +149,3 @@ uv run python entrainer.py \
   --dispositif cuda \
   --resume sorties_maskrcnn/modeles/dernier_modele.pth
 ```
-

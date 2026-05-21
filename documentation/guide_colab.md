@@ -128,7 +128,9 @@ Si Colab donne `CUDA out of memory`, relance avec `--lot 1`.
   --modele yolo11n-seg.pt \
   --epoques 50 \
   --lot 8 \
-  --lr 1e-4 \
+  --lr 3e-4 \
+  --weight-decay 1e-4 \
+  --patience 15 \
   --taille-image 384 \
   --save-period 5 \
   --dispositif cuda
@@ -138,6 +140,16 @@ Si la mémoire manque, utilise `--lot 4` ou `--lot 2`.
 Le script affiche un résumé du dataset YOLO converti, la configuration
 d'entraînement, les métriques par époque quand Ultralytics les fournit, puis les
 métriques validation/test finales avec précision, rappel, F1 score et mAP.
+
+Pour reprendre après une coupure Colab :
+
+```bash
+!python entrainer_yolo.py \
+  --donnees "$DATASET" \
+  --sorties "$SORTIES_YOLO" \
+  --resume "$SORTIES_YOLO/entrainements/yolo11_seg_fissures/weights/last.pt" \
+  --dispositif cuda
+```
 
 ## 10. Fichiers à récupérer
 
