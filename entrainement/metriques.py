@@ -80,7 +80,7 @@ def _est_rle_coco(masque: Any) -> bool:
 
 
 def _normaliser_rle_coco(rle: dict[str, Any], contexte: str) -> dict[str, Any]:
-    """Normalise un RLE COCO pour TorchMetrics/pycocotools."""
+    """Normalise un RLE COCO pour décodage via pycocotools."""
     assert _est_rle_coco(rle), f"{contexte}: masque RLE COCO invalide"
 
     hauteur, largeur = int(rle["size"][0]), int(rle["size"][1])
@@ -194,35 +194,14 @@ def _normaliser_tableau_masques(masques: Any, contexte: str) -> np.ndarray:
     return tableau > 0.5
 
 
-def _encoder_masque_2d_vers_rle(masque: np.ndarray, contexte: str) -> dict[str, Any]:
-    """Encode un masque booléen 2D en COCO RLE compressé."""
-    if masque.ndim != 2:
-        raise ValueError(f"{contexte}: masque attendu en 2D, reçu shape={masque.shape}")
-
-    masque_uint8 = np.asfortranarray(masque.astype(np.uint8))
-    rle = mask_utils.encode(masque_uint8)
-    return _normaliser_rle_coco(rle, contexte)
-
-
-def _convertir_masques_vers_rle(masques: Any, contexte: str) -> list[dict[str, Any]]:
-    """Convertit strictement les masques reçus vers une liste de RLE COCO."""
-    if _est_rle_coco(masques):
-        return [_normaliser_rle_coco(masques, contexte)]
-
-    if isinstance(masques, (list, tuple)) and all(_est_rle_coco(masque) for masque in masques):
-        return [
-            _normaliser_rle_coco(masque, f"{contexte}.masks[{index}]")
-            for index, masque in enumerate(masques)
-        ]
-
+def _convertir_masques_vers_tensor(masques: Any, contexte: str) -> torch.Tensor:
+    """Convertit les masques vers le Tensor [N, H, W] attendu par TorchMetrics."""
     tableau = _normaliser_tableau_masques(masques, contexte)
-    if tableau.shape[0] == 0:
-        return []
-
-    return [
-        _encoder_masque_2d_vers_rle(masque, f"{contexte}.masks[{index}]")
-        for index, masque in enumerate(tableau)
-    ]
+    if tableau.ndim != 3:
+        raise ValueError(
+            f"{contexte}: masks normalisé doit être [N,H,W], reçu {tableau.shape}"
+        )
+    return torch.as_tensor(tableau.astype(np.uint8), dtype=torch.uint8)
 
 
 def _normaliser_vecteur_tensor(
@@ -296,18 +275,22 @@ def _normaliser_detection_pour_map(
     if manquants:
         raise KeyError(f"{contexte}: champs manquants : {manquants}")
 
-    masques_rle = _convertir_masques_vers_rle(detection["masks"], contexte)
-    nombre_masques = len(masques_rle)
+    masques_tensor = _convertir_masques_vers_tensor(detection["masks"], contexte)
+    nombre_masques = int(masques_tensor.shape[0])
 
     sortie: dict[str, Any] = {
-        "boxes": _normaliser_boites(detection["boxes"], nombre_masques, f"{contexte}.boxes"),
+        "boxes": _normaliser_boites(
+            detection["boxes"],
+            nombre_masques,
+            f"{contexte}.boxes",
+        ),
         "labels": _normaliser_vecteur_tensor(
             detection["labels"],
             nombre_masques,
             f"{contexte}.labels",
             torch.int64,
         ),
-        "masks": masques_rle,
+        "masks": masques_tensor,
     }
 
     if prediction:
@@ -318,10 +301,8 @@ def _normaliser_detection_pour_map(
             torch.float32,
         )
 
-    assert isinstance(sortie["masks"], list), f"{contexte}: masks doit être une liste RLE"
-    assert all(_est_rle_coco(masque) for masque in sortie["masks"]), (
-        f"{contexte}: tous les masques doivent être des RLE COCO"
-    )
+    assert isinstance(sortie["masks"], torch.Tensor), f"{contexte}: masks doit être un Tensor"
+    assert sortie["masks"].ndim == 3, f"{contexte}: masks doit être [N,H,W]"
     return sortie
 
 
@@ -334,7 +315,10 @@ def _journaliser_structures_map(
 ) -> None:
     """Affiche les structures avant l'appel critique à map.update()."""
     print("\n[TorchMetrics] Préparation MeanAveragePrecision(iou_type='segm')")
-    print(f"[TorchMetrics] Images : predictions={len(predictions_originales)}, cibles={len(cibles_originales)}")
+    print(
+        f"[TorchMetrics] Images : predictions={len(predictions_originales)}, "
+        f"cibles={len(cibles_originales)}"
+    )
 
     for nom, originaux, convertis in (
         ("prediction", predictions_originales, predictions_converties),
@@ -352,10 +336,13 @@ def _journaliser_structures_map(
                 f"[TorchMetrics] {nom}[{index}] converti : "
                 f"boxes={_decrire_valeur(converti['boxes'])}, "
                 f"labels={_decrire_valeur(converti['labels'])}, "
-                f"masks=list(len={len(converti['masks'])}, format=COCO_RLE)"
+                f"masks={_decrire_valeur(converti['masks'])}"
             )
             if "scores" in converti:
-                print(f"[TorchMetrics] {nom}[{index}] scores={_decrire_valeur(converti['scores'])}")
+                print(
+                    f"[TorchMetrics] {nom}[{index}] "
+                    f"scores={_decrire_valeur(converti['scores'])}"
+                )
 
 
 def calculer_metriques_segmentation(
@@ -377,8 +364,8 @@ def calculer_metriques_segmentation(
         {"boxes": FloatTensor[M,4], "labels": IntTensor[M],
          "masks": Tensor/ndarray/list/RLE}
 
-    Avant map.update(), tous les masques sont convertis en COCO RLE :
-        {"size": [H, W], "counts": "..."}
+    Avant map.update(), tous les masques sont convertis en Tensor binaire [N,H,W],
+    le format attendu par TorchMetrics pour MeanAveragePrecision(iou_type="segm").
 
     Args:
         predictions : Liste de dicts de prédictions par image.
@@ -438,7 +425,8 @@ def calculer_metriques_segmentation(
             max_elements=len(predictions),
         )
         raise RuntimeError(
-            "Échec MeanAveragePrecision(iou_type='segm') après conversion RLE COCO. "
+            "Échec MeanAveragePrecision(iou_type='segm') après conversion Tensor "
+            "des masques. "
             "Les structures détaillées ont été affichées juste avant cette exception."
         ) from exc
 
