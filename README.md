@@ -264,9 +264,9 @@ python analyser.py \
   --seuil 0.5
 ```
 
-`analyser.py` détecte automatiquement le backend : `.pt` utilise YOLO-seg,
-`.pth` utilise Mask R-CNN. Vous pouvez forcer le choix avec `--backend yolo` ou
-`--backend maskrcnn`.
+`analyser.py` est réglé par défaut pour YOLO-seg : checkpoint `.pt`, image 640,
+inférence en batch et masques haute résolution. Pour analyser un ancien
+checkpoint Mask R-CNN `.pth`, ajoutez explicitement `--backend maskrcnn`.
 
 ---
 
@@ -292,6 +292,9 @@ python analyser.py --modele sorties_yolo/entrainements/yolo_seg_fissures/weights
 
 # Ajuster le seuil de confiance (0.4 = plus de détections, 0.7 = plus strict)
 python analyser.py --modele best.pt --images photos/ --seuil 0.4
+
+# Ancien checkpoint Mask R-CNN
+python analyser.py --backend maskrcnn --modele sorties/modeles/meilleur_modele.pth --images photos/
 ```
 
 Pour comprendre comment l'orientation est calculée après la détection, voir
