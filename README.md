@@ -103,6 +103,7 @@ Guides complets :
 - Local avec uv : [documentation/guide_local_uv.md](documentation/guide_local_uv.md)
 - Google Colab avec dataset sur Drive : [documentation/guide_colab.md](documentation/guide_colab.md)
 - Kaggle : [documentation/guide_kaggle.md](documentation/guide_kaggle.md)
+- Analyse de l'orientation : [documentation/guide_orientation.md](documentation/guide_orientation.md)
 
 ---
 
@@ -233,6 +234,22 @@ python entrainer.py \
 
 ### Analyse après entraînement Mask R-CNN
 
+Après l'entraînement, lancez `analyser.py` avec le checkpoint `.pth` et le dossier
+d'images à analyser. Le script détecte les fissures, calcule leur orientation
+(`horizontale`, `verticale`, `inclinée`) et peut exporter un rapport JSON.
+
+Commande locale :
+
+```bash
+python analyser.py \
+  --modele sorties/modeles/meilleur_modele.pth \
+  --images photos_test/ \
+  --seuil 0.4 \
+  --sortie resultats_analyse.json
+```
+
+Commande Google Colab / Drive :
+
 ```bash
 python analyser.py \
   --modele /content/drive/MyDrive/detection_fissures_sorties_mask_v2/modeles/meilleur_modele.pth \
@@ -268,6 +285,9 @@ python analyser.py --modele sorties/modeles/meilleur_modele.pth --images photos/
 # Ajuster le seuil de confiance (0.4 = plus de détections, 0.7 = plus strict)
 python analyser.py --modele modele.pth --images photos/ --seuil 0.4
 ```
+
+Pour comprendre comment l'orientation est calculée après la détection, voir
+[documentation/guide_orientation.md](documentation/guide_orientation.md).
 
 ---
 
