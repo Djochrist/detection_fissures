@@ -1,11 +1,11 @@
-# Détection de Fissures Structurelles — Mask R-CNN et YOLOv11
+# Détection de Fissures Structurelles — Mask R-CNN et YOLO-seg
 
 Segmentation d'instance de fissures sur structures (béton, maçonnerie)
 avec deux modèles entraînables :
 
 - **Mask R-CNN** (`maskrcnn_resnet50_fpn_v2`) : modèle principal précis,
   entraîné directement depuis le dataset COCO.
-- **YOLOv11-seg** (`yolo11n-seg.pt`, `yolo11s-seg.pt`, etc.) : modèle rapide
+- **YOLO-seg** (`yolo26s-seg.pt` par défaut, YOLO11 compatible) : modèle rapide
   entraîné via Ultralytics après conversion automatique COCO → YOLO-seg.
 
 ---
@@ -17,7 +17,7 @@ detection_fissures/
 │
 ├── pyproject.toml              # Dépendances (UV)
 ├── entrainer.py                # Entraînement Mask R-CNN
-├── entrainer_yolo.py           # Entraînement YOLOv11-seg
+├── entrainer_yolo.py           # Entraînement YOLO-seg
 ├── analyser.py                 # Script de classification post-entraînement
 │
 ├── configuration/
@@ -71,7 +71,7 @@ dataset/
 
 Le fichier d'annotations doit être au format **COCO** (export Roboflow).
 Pour Mask R-CNN, le dataset est utilisé tel quel.
-Pour YOLOv11-seg, `entrainer_yolo.py` génère automatiquement une copie
+Pour YOLO-seg, `entrainer_yolo.py` génère automatiquement une copie
 YOLO-seg dans le dossier de sortie.
 Les images sont fournies aux modèles sous forme de tenseurs float `[0, 1]`.
 La normalisation attendue par Mask R-CNN est gérée par le transform interne
@@ -148,7 +148,7 @@ git pull origin main
 Installer les dépendances :
 
 ```bash
-pip install -U torch torchvision opencv-python numpy scipy pycocotools "torchmetrics[detection]" rich ultralytics
+pip install -U torch torchvision opencv-python numpy scipy pycocotools "torchmetrics[detection]" rich "ultralytics>=8.4.0"
 ```
 
 Structure du dataset sur Drive, à passer au script avec `--donnees /content/drive/MyDrive/dataset` :
@@ -174,32 +174,37 @@ python entrainer.py \
   --donnees /content/drive/MyDrive/dataset \
   --sorties /content/drive/MyDrive/detection_fissures_sorties_mask_v2 \
   --epoques 100 \
-  --lot 4 \
-  --lr 5e-5 \
-  --taille-image 384 \
+  --lot 2 \
+  --lr 3e-4 \
+  --weight-decay 5e-4 \
+  --taille-image 512 \
+  --aire-min-masque 8 \
   --seuil-score 0.05 \
   --dispositif cuda
 ```
 
-### Modèle 2 — YOLOv11-seg
+### Modèle 2 — YOLO26-seg
 
 ```bash
 python entrainer_yolo.py \
   --donnees /content/drive/MyDrive/dataset \
-  --sorties /content/drive/MyDrive/detection_fissures_sorties_yolo11 \
-  --modele yolo11n-seg.pt \
+  --sorties /content/drive/MyDrive/detection_fissures_sorties_yolo26 \
+  --modele yolo26s-seg.pt \
   --epoques 100 \
   --lot 8 \
-  --lr 3e-4 \
-  --weight-decay 1e-4 \
-  --patience 15 \
-  --taille-image 384 \
+  --lr 1e-3 \
+  --weight-decay 5e-4 \
+  --patience 25 \
+  --taille-image 640 \
+  --mask-ratio 2 \
+  --close-mosaic 15 \
   --save-period 5 \
   --dispositif cuda
 ```
 
-Pour un GPU plus puissant, vous pouvez remplacer `yolo11n-seg.pt` par
-`yolo11s-seg.pt`, `yolo11m-seg.pt`, `yolo11l-seg.pt` ou `yolo11x-seg.pt`.
+Pour un GPU plus petit, utilisez `yolo26n-seg.pt` ou baissez `--lot`.
+YOLO11 reste accepté (`yolo11s-seg.pt`, `yolo11m-seg.pt`, etc.) si vous devez
+reproduire d'anciens entraînements.
 Le script YOLO affiche maintenant un résumé du dataset converti, la configuration,
 les métriques par époque quand Ultralytics les expose, puis un tableau validation/test
 avec précision, rappel, F1 score et mAP.
@@ -207,13 +212,13 @@ Ajoutez `--silencieux` seulement si vous voulez réduire ces journaux.
 
 ### Reprendre un entraînement interrompu
 
-Exemple pour reprendre YOLOv11-seg depuis le dernier checkpoint :
+Exemple pour reprendre YOLO-seg depuis le dernier checkpoint :
 
 ```bash
 python entrainer_yolo.py \
   --donnees /content/drive/MyDrive/dataset \
-  --sorties /content/drive/MyDrive/detection_fissures_sorties_yolo11 \
-  --resume /content/drive/MyDrive/detection_fissures_sorties_yolo11/entrainements/yolo11_seg_fissures/weights/last.pt \
+  --sorties /content/drive/MyDrive/detection_fissures_sorties_yolo26 \
+  --resume /content/drive/MyDrive/detection_fissures_sorties_yolo26/entrainements/yolo_seg_fissures/weights/last.pt \
   --dispositif cuda
 ```
 
@@ -225,41 +230,43 @@ python entrainer.py \
   --donnees /content/drive/MyDrive/dataset \
   --sorties /content/drive/MyDrive/detection_fissures_sorties_mask_v2 \
   --epoques 100 \
-  --lot 4 \
-  --lr 5e-5 \
-  --taille-image 384 \
+  --lot 2 \
+  --lr 3e-4 \
+  --taille-image 512 \
   --dispositif cuda \
   --resume /content/drive/MyDrive/detection_fissures_sorties_mask_v2/modeles/dernier_modele.pth
 ```
 
-### Analyse après entraînement Mask R-CNN
+### Analyse après entraînement YOLO-seg ou Mask R-CNN
 
-Après l'entraînement, lancez `analyser.py` avec le checkpoint `.pth` et le dossier
-d'images à analyser. Le script détecte les fissures, calcule leur orientation
-(`horizontale`, `verticale`, `inclinée`) et peut exporter un rapport JSON.
+Après l'entraînement, lancez `analyser.py` avec le checkpoint YOLO `.pt`
+ou Mask R-CNN `.pth` et le dossier d'images à analyser. Le script détecte les
+fissures, calcule leur orientation (`horizontale`, `verticale`, `inclinée`) et
+peut exporter un rapport JSON.
 
-Commande locale :
+Commande YOLO locale :
 
 ```bash
 python analyser.py \
-  --modele sorties/modeles/meilleur_modele.pth \
+  --modele sorties_yolo/entrainements/yolo_seg_fissures/weights/best.pt \
   --images photos_test/ \
   --seuil 0.4 \
   --sortie resultats_analyse.json
 ```
 
-Commande Google Colab / Drive :
+Commande YOLO Google Colab / Drive :
 
 ```bash
 python analyser.py \
-  --modele /content/drive/MyDrive/detection_fissures_sorties_mask_v2/modeles/meilleur_modele.pth \
+  --modele /content/drive/MyDrive/detection_fissures_sorties_yolo26/entrainements/yolo_seg_fissures/weights/best.pt \
   --images /content/drive/MyDrive/images_a_tester \
   --sortie /content/drive/MyDrive/resultats_fissures.json \
   --seuil 0.5
 ```
 
-Les résultats YOLOv11 sont sauvegardés par Ultralytics dans
-`detection_fissures_sorties_yolo11/entrainements/`.
+`analyser.py` détecte automatiquement le backend : `.pt` utilise YOLO-seg,
+`.pth` utilise Mask R-CNN. Vous pouvez forcer le choix avec `--backend yolo` ou
+`--backend maskrcnn`.
 
 ---
 
@@ -268,22 +275,23 @@ Les résultats YOLOv11 sont sauvegardés par Ultralytics dans
 ### 1. Entraînement
 ```bash
 python entrainer.py --architecture maskrcnn_resnet50_fpn_v2 --donnees /chemin/vers/dataset --dispositif cuda
-python entrainer_yolo.py --donnees /chemin/vers/dataset --modele yolo11n-seg.pt --dispositif cuda
+python entrainer_yolo.py --donnees /chemin/vers/dataset --modele yolo26s-seg.pt --dispositif cuda
 ```
 
-Les checkpoints conservent l'architecture utilisée, ce qui permet à `analyser.py`
-de reconstruire automatiquement le bon modèle pendant l'inférence.
+`analyser.py` utilise directement les checkpoints YOLO `.pt`. Pour les anciens
+checkpoints Mask R-CNN `.pth`, il reconstruit l'architecture torchvision avant
+de charger les poids.
 
 ### 2. Classification des fissures (après entraînement)
 ```bash
 # Analyser un dossier d'images et afficher les résultats dans le terminal
-python analyser.py --modele sorties/modeles/meilleur_modele.pth --images photos/
+python analyser.py --modele sorties_yolo/entrainements/yolo_seg_fissures/weights/best.pt --images photos/
 
 # Exporter un rapport JSON complet
-python analyser.py --modele sorties/modeles/meilleur_modele.pth --images photos/ --sortie resultats.json
+python analyser.py --modele sorties_yolo/entrainements/yolo_seg_fissures/weights/best.pt --images photos/ --sortie resultats.json
 
 # Ajuster le seuil de confiance (0.4 = plus de détections, 0.7 = plus strict)
-python analyser.py --modele modele.pth --images photos/ --seuil 0.4
+python analyser.py --modele best.pt --images photos/ --seuil 0.4
 ```
 
 Pour comprendre comment l'orientation est calculée après la détection, voir
@@ -294,9 +302,9 @@ Pour comprendre comment l'orientation est calculée après la détection, voir
 ## Stratégie d'entraînement — 3 phases
 
 ```
-Époque 1–5   : Backbone GELÉ → entraînement têtes uniquement
-Époque 5–15  : Dégelage layer3/layer4 → fine-tuning features haut niveau
-Époque 15+   : Dégelage complet → fine-tuning global
+Époque 1     : Backbone GELÉ → stabilisation des têtes
+Époque 2–7   : Dégelage layer3/layer4 → adaptation aux fissures
+Époque 8+    : Dégelage complet → fine-tuning global
 ```
 
 Anti-overfitting : AdamW + weight decay, gradient clipping, early stopping, précision mixte float16.

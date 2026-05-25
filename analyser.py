@@ -7,8 +7,8 @@ et classifie chaque fissure détectée selon :
     - Sa localisation  : superficielle / profonde / transversale
 
 Usage :
-    python analyser.py --modele sorties/modeles/meilleur_modele.pth --images chemin/images/
-    python analyser.py --modele modele.pth --images photos/ --seuil 0.4 --sortie resultats.json
+    python analyser.py --modele sorties_yolo/entrainements/yolo_seg_fissures/weights/best.pt --images chemin/images/
+    python analyser.py --modele sorties/modeles/meilleur_modele.pth --backend maskrcnn --images photos/
 """
 
 from __future__ import annotations
@@ -37,14 +37,21 @@ def analyser_arguments() -> argparse.Namespace:
     """Parse les arguments de la ligne de commande."""
     configuration = ConfigurationGlobale()
     analyseur = argparse.ArgumentParser(
-        description="Classification des fissures après inférence Mask R-CNN",
+        description="Classification des fissures après inférence YOLO-seg ou Mask R-CNN",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     analyseur.add_argument(
         "--modele",
         type=str,
         required=True,
-        help="Chemin vers le fichier .pth du modèle entraîné",
+        help="Chemin vers le checkpoint entraîné (.pt YOLO-seg ou .pth Mask R-CNN)",
+    )
+    analyseur.add_argument(
+        "--backend",
+        type=str,
+        default="auto",
+        choices=["auto", "yolo", "maskrcnn"],
+        help="Moteur d'inférence. auto utilise YOLO pour .pt et Mask R-CNN pour .pth",
     )
     analyseur.add_argument(
         "--images",
@@ -63,7 +70,7 @@ def analyser_arguments() -> argparse.Namespace:
         type=str,
         default=configuration.modele.architecture,
         choices=ARCHITECTURES_MODELES_SEGMENTATION,
-        help="Architecture Mask R-CNN utilisée pour reconstruire le modèle",
+        help="Architecture Mask R-CNN utilisée pour reconstruire le modèle .pth",
     )
     analyseur.add_argument(
         "--seuil",
@@ -150,6 +157,112 @@ def charger_modele(
     return modele
 
 
+def charger_modele_yolo(chemin_pt: str | Path) -> object:
+    """
+    Charge un checkpoint YOLO-seg Ultralytics.
+
+    Args:
+        chemin_pt : Chemin vers un fichier .pt entraîné par Ultralytics.
+
+    Returns:
+        Modèle YOLO chargé.
+    """
+    chemin_pt = Path(chemin_pt)
+    if not chemin_pt.exists():
+        raise FileNotFoundError(f"Modèle YOLO introuvable : {chemin_pt}")
+
+    try:
+        from ultralytics import YOLO
+    except ImportError as exc:
+        raise ImportError(
+            "Le paquet 'ultralytics>=8.4.0' est requis pour analyser avec YOLO-seg. "
+            "Installez-le avec : pip install -U ultralytics"
+        ) from exc
+
+    modele = YOLO(str(chemin_pt))
+    print(f"[Modele] Checkpoint YOLO-seg chargé : {chemin_pt}")
+    return modele
+
+
+def _backend_depuis_arguments(args: argparse.Namespace) -> str:
+    """Résout le backend d'inférence depuis --backend et l'extension du checkpoint."""
+    if args.backend != "auto":
+        return args.backend
+
+    suffixe = Path(args.modele).suffix.lower()
+    if suffixe == ".pt":
+        return "yolo"
+    if suffixe == ".pth":
+        return "maskrcnn"
+
+    raise ValueError(
+        "Impossible de détecter le backend automatiquement. "
+        "Utilisez --backend yolo ou --backend maskrcnn."
+    )
+
+
+def _device_ultralytics(dispositif: str) -> str | None:
+    """Traduit le nom de dispositif du projet vers Ultralytics."""
+    if dispositif == "auto":
+        return None
+    if dispositif == "cuda":
+        return "0"
+    return dispositif
+
+
+def predire_yolo(
+    modele: object,
+    chemin_image: str | Path,
+    taille_image: int,
+    seuil: float,
+    dispositif: str,
+) -> tuple[list[dict], int, int]:
+    """
+    Lance YOLO-seg sur une image et convertit la sortie au format du classificateur.
+
+    Le classificateur existant attend des dictionnaires proches de torchvision :
+    masks, scores, labels, boxes. Cette fonction fait le pont depuis Ultralytics.
+    """
+    resultats = modele.predict(
+        source=str(chemin_image),
+        task="segment",
+        imgsz=taille_image,
+        conf=seuil,
+        device=_device_ultralytics(dispositif),
+        verbose=False,
+    )
+
+    if not resultats:
+        return [], taille_image, taille_image
+
+    resultat = resultats[0]
+    hauteur_image, largeur_image = getattr(resultat, "orig_shape", (taille_image, taille_image))
+    masques = getattr(resultat, "masks", None)
+    boites = getattr(resultat, "boxes", None)
+
+    if masques is None or getattr(masques, "data", None) is None:
+        return [{"masks": [], "scores": [], "labels": [], "boxes": []}], largeur_image, hauteur_image
+
+    masques_tensor = masques.data
+    if getattr(masques_tensor, "ndim", 0) == 3:
+        masques_tensor = masques_tensor.unsqueeze(1)
+    hauteur_masque = int(masques_tensor.shape[-2])
+    largeur_masque = int(masques_tensor.shape[-1])
+
+    scores = boites.conf if boites is not None and getattr(boites, "conf", None) is not None else None
+    labels = boites.cls if boites is not None and getattr(boites, "cls", None) is not None else None
+    boxes_xyxy = boites.xyxy if boites is not None and getattr(boites, "xyxy", None) is not None else None
+
+    return [
+        {
+            "masks": masques_tensor,
+            "scores": scores,
+            "labels": labels,
+            "boxes": boxes_xyxy,
+        }
+    ], largeur_masque, hauteur_masque
+
+
 def preparer_image(
     chemin_image: str | Path,
     taille_image: int,
@@ -196,6 +309,7 @@ def main() -> None:
     4. Export JSON du rapport complet (si --sortie spécifié)
     """
     args = analyser_arguments()
+    backend = _backend_depuis_arguments(args)
 
     import torch
 
@@ -206,15 +320,19 @@ def main() -> None:
         forcer=None if args.dispositif == "auto" else args.dispositif
     )
     print(f"[Dispositif] {dispositif}")
+    print(f"[Backend] {backend}")
 
     # ── Chargement du modèle ─────────────────────────────────────────────────
-    modele = charger_modele(
-        chemin_pth=args.modele,
-        nombre_classes=args.nombre_classes,
-        taille_image=args.taille_image,
-        architecture=args.architecture,
-        dispositif=dispositif,
-    )
+    if backend == "yolo":
+        modele = charger_modele_yolo(args.modele)
+    else:
+        modele = charger_modele(
+            chemin_pth=args.modele,
+            nombre_classes=args.nombre_classes,
+            taille_image=args.taille_image,
+            architecture=args.architecture,
+            dispositif=dispositif,
+        )
 
     # ── Listage des images ────────────────────────────────────────────────────
     dossier_images = Path(args.images)
@@ -239,30 +357,42 @@ def main() -> None:
     with torch.no_grad():
         for chemin in chemins_images:
             try:
-                tenseur, largeur_orig, hauteur_orig = preparer_image(
-                    chemin_image=chemin,
-                    taille_image=args.taille_image,
-                    dispositif=dispositif,
-                )
+                if backend == "yolo":
+                    predictions_filtrees, largeur_image, hauteur_image = predire_yolo(
+                        modele=modele,
+                        chemin_image=chemin,
+                        taille_image=args.taille_image,
+                        seuil=args.seuil,
+                        dispositif=args.dispositif,
+                    )
+                else:
+                    tenseur, largeur_image, hauteur_image = preparer_image(
+                        chemin_image=chemin,
+                        taille_image=args.taille_image,
+                        dispositif=dispositif,
+                    )
 
-                predictions = modele(tenseur)
+                    predictions = modele(tenseur)
 
-                # Filtrer par seuil de confiance
-                predictions_filtrees = []
-                for pred in predictions:
-                    masque_score = pred["scores"] >= args.seuil
-                    predictions_filtrees.append({
-                        "masks":  pred["masks"][masque_score],
-                        "scores": pred["scores"][masque_score],
-                        "labels": pred["labels"][masque_score],
-                        "boxes":  pred["boxes"][masque_score],
-                    })
+                    # Filtrer par seuil de confiance
+                    predictions_filtrees = []
+                    for pred in predictions:
+                        masque_score = pred["scores"] >= args.seuil
+                        predictions_filtrees.append({
+                            "masks":  pred["masks"][masque_score],
+                            "scores": pred["scores"][masque_score],
+                            "labels": pred["labels"][masque_score],
+                            "boxes":  pred["boxes"][masque_score],
+                        })
+
+                    largeur_image = args.taille_image
+                    hauteur_image = args.taille_image
 
                 # Classification
                 resultats = classifier_predictions(
                     predictions=predictions_filtrees,
-                    largeur_image=args.taille_image,
-                    hauteur_image=args.taille_image,
+                    largeur_image=largeur_image,
+                    hauteur_image=hauteur_image,
                     seuil_score_min=0.0,   # Déjà filtré ci-dessus
                 )
 
@@ -288,6 +418,7 @@ def main() -> None:
                 {
                     "parametres": {
                         "modele":       args.modele,
+                        "backend":      backend,
                         "seuil":        args.seuil,
                         "taille_image": args.taille_image,
                     },
