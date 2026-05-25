@@ -48,22 +48,136 @@ def analyser_arguments() -> argparse.Namespace:
         help="Poids YOLOv11 segmentation : yolo11n/s/m/l/x-seg.pt",
     )
     analyseur.add_argument("--epoques", type=int, default=100)
-    analyseur.add_argument("--lot", type=int, default=8, help="Batch size")
-    analyseur.add_argument("--taille-image", type=int, default=384, help="imgsz YOLO")
-    analyseur.add_argument("--lr", type=float, default=3e-4, help="lr0 Ultralytics")
+    analyseur.add_argument("--lot", type=int, default=8, help="Batch size (-1 = autobatch)")
+    analyseur.add_argument("--taille-image", type=int, default=640, help="imgsz YOLO (multiple de 32)")
+    analyseur.add_argument("--lr", type=float, default=1e-3, help="lr0 : taux d'apprentissage initial")
+    analyseur.add_argument(
+        "--lrf",
+        type=float,
+        default=0.01,
+        help="Ratio lr final : lr_final = lr0 × lrf (cosine annealing)",
+    )
     analyseur.add_argument(
         "--weight-decay",
         type=float,
-        default=1e-4,
-        help="Décroissance des poids Ultralytics",
+        default=5e-4,
+        help="Décroissance des poids (régularisation L2)",
     )
-    analyseur.add_argument("--patience", type=int, default=15, help="Patience early stopping")
+    analyseur.add_argument("--patience", type=int, default=20, help="Patience early stopping")
     analyseur.add_argument("--workers", type=int, default=2)
     analyseur.add_argument(
         "--save-period",
         type=int,
         default=5,
         help="Sauvegarde un checkpoint YOLO toutes les N époques (-1 désactive)",
+    )
+    analyseur.add_argument(
+        "--warmup-epoques",
+        type=float,
+        default=3.0,
+        help="Nombre d'époques de warmup LR (linéaire → lr0)",
+    )
+    analyseur.add_argument(
+        "--close-mosaic",
+        type=int,
+        default=10,
+        help="Désactive l'augmentation mosaic N époques avant la fin (stabilisation)",
+    )
+    analyseur.add_argument(
+        "--mask-ratio",
+        type=int,
+        default=4,
+        help="Rapport de sous-échantillonnage des masques (1=pleine résolution, 4=par défaut)",
+    )
+    analyseur.add_argument(
+        "--overlap-mask",
+        action="store_true",
+        default=True,
+        help="Autorise les masques à se chevaucher (recommandé pour les fissures denses)",
+    )
+    analyseur.add_argument(
+        "--copy-paste",
+        type=float,
+        default=0.2,
+        help="Probabilité d'augmentation copy-paste (colle des instances dans d'autres images)",
+    )
+    analyseur.add_argument(
+        "--mosaic",
+        type=float,
+        default=1.0,
+        help="Probabilité de l'augmentation mosaic [0, 1]",
+    )
+    analyseur.add_argument(
+        "--mixup",
+        type=float,
+        default=0.0,
+        help="Probabilité de mixup entre deux images [0, 1] (0 = désactivé)",
+    )
+    analyseur.add_argument(
+        "--degrees",
+        type=float,
+        default=10.0,
+        help="Amplitude de rotation aléatoire en degrés (±degrees)",
+    )
+    analyseur.add_argument(
+        "--translate",
+        type=float,
+        default=0.1,
+        help="Amplitude de translation aléatoire (fraction de l'image)",
+    )
+    analyseur.add_argument(
+        "--scale",
+        type=float,
+        default=0.5,
+        help="Amplitude de mise à l'échelle aléatoire (±scale)",
+    )
+    analyseur.add_argument(
+        "--fliplr",
+        type=float,
+        default=0.5,
+        help="Probabilité de flip horizontal",
+    )
+    analyseur.add_argument(
+        "--flipud",
+        type=float,
+        default=0.0,
+        help="Probabilité de flip vertical",
+    )
+    analyseur.add_argument(
+        "--hsv-h",
+        type=float,
+        default=0.015,
+        help="Variation de teinte HSV (fraction)",
+    )
+    analyseur.add_argument(
+        "--hsv-s",
+        type=float,
+        default=0.7,
+        help="Variation de saturation HSV (fraction)",
+    )
+    analyseur.add_argument(
+        "--hsv-v",
+        type=float,
+        default=0.4,
+        help="Variation de luminosité HSV (fraction)",
+    )
+    analyseur.add_argument(
+        "--cos-lr",
+        action="store_true",
+        default=True,
+        help="Utiliser un scheduler cosine annealing (recommandé)",
+    )
+    analyseur.add_argument(
+        "--freeze",
+        type=int,
+        default=0,
+        help="Nombre de couches YOLO à geler depuis le début du backbone (0 = aucune)",
+    )
+    analyseur.add_argument(
+        "--amp",
+        action="store_true",
+        default=True,
+        help="Activer la précision mixte automatique AMP (accélère l'entraînement GPU)",
     )
     analyseur.add_argument(
         "--dispositif",
@@ -218,13 +332,75 @@ def afficher_metriques_yolo(resultats: Any, titre: str) -> None:
         print(f"[YOLO] {titre} : métriques détaillées non exposées par cette version.")
         return
 
-    print("\n" + "═" * 55)
+    print("\n" + "═" * 60)
     print(f"  {titre}")
-    print("═" * 55)
+    print("═" * 60)
     for label, valeur in valeurs:
         barre = "█" * int(max(0.0, min(1.0, valeur)) * 20)
-        print(f"  {label:<24} : {valeur:.4f}  {barre}")
-    print("═" * 55 + "\n")
+        print(f"  {label:<26} : {valeur:.4f}  {barre}")
+
+    print("═" * 60)
+    print()
+    print("  SIGNIFICATION DES MÉTRIQUES YOLO-SEG")
+    print(f"  {'─'*56}")
+    print("  mAP@0.5 masque      Métrique PRINCIPALE. Segmentation considérée")
+    print("                      correcte si IoU pixel ≥ 50 %. Compare directement")
+    print("                      avec d'autres travaux sur la détection de fissures.")
+    print("                      Cible : > 0.55  │  Bon : > 0.70  │  Excellent : > 0.80")
+    print()
+    print("  mAP@0.5:0.95 masque Rigueur COCO : moyenne sur IoU 50→95 %. Pénalise")
+    print("                      les masques dont le contour est imprécis.")
+    print("                      Écart mAP50 - mAP50:95 > 0.20 → bords de masque flous.")
+    print()
+    print("  Précision masque    Sur toutes les fissures prédites, combien")
+    print("                      correspondent réellement à une fissure annotée.")
+    print("                      Faible → trop de fausses alarmes.")
+    print()
+    print("  Rappel masque       Sur toutes les fissures réelles, combien")
+    print("                      ont été détectées. Faible → fissures manquées.")
+    print("                      Priorité RAPPEL > précision (inspection sécurité).")
+    print()
+    print("  F1 score masque     Bilan unique Précision/Rappel (moyenne harmonique).")
+    print("                      Cible : > 0.60  │  Bon : > 0.70  │  Excellent : > 0.80")
+    print()
+    print("  mAP@0.5 boîte       Même définition mais sur les boîtes englobantes.")
+    print("                      Utile pour diagnostiquer : si boîte >> masque,")
+    print("                      le RPN trouve les zones mais les masques sont imprécis.")
+    print()
+    print("  mAP@0.5:0.95 boîte  Métrique boîte stricte. Doit rester proche de")
+    print("                      mAP@0.5:0.95 masque (< 0.10 d'écart idéalement).")
+    print()
+    print("  INTERPRÉTATION RAPIDE")
+    print(f"  {'─'*56}")
+
+    map50_masque  = next((v for l, v in valeurs if "masque" in l.lower() and "0.5 " in l), None)
+    rappel_masque = next((v for l, v in valeurs if "rappel masque" in l.lower()), None)
+    f1_masque     = next((v for l, v in valeurs if "f1" in l.lower() and "masque" in l.lower()), None)
+
+    map50_m  = map50_masque  or 0.0
+    f1_m     = f1_masque     or 0.0
+    rappel_m = rappel_masque or 0.0
+
+    if map50_m >= 0.70 and f1_m >= 0.70:
+        niveau = "EXCELLENT — modèle prêt pour inspection structurelle"
+        icone  = "✓✓"
+    elif map50_m >= 0.50 and f1_m >= 0.60:
+        niveau = "BON — résultats exploitables, affinage possible"
+        icone  = "✓"
+    elif map50_m >= 0.35:
+        niveau = "ACCEPTABLE — continuer l'entraînement ou augmenter le dataset"
+        icone  = "~"
+    else:
+        niveau = "INSUFFISANT — vérifier données, lr, augmentation, annotations"
+        icone  = "✗"
+
+    if rappel_m < 0.50 and map50_m > 0.45:
+        print("  ⚠  Rappel faible : des fissures sont manquées.")
+        print("     → Abaisser le seuil de confiance dans l'inférence.")
+        print("     → Vérifier que les annotations couvrent toutes les fissures visibles.")
+
+    print(f"  {icone}  Niveau global : {niveau}")
+    print("═" * 60 + "\n")
 
 
 def installer_journaux_yolo(modele: Any, actif: bool = True) -> None:
@@ -299,21 +475,31 @@ def main() -> None:
             "Installez-le avec : pip install -U ultralytics"
         ) from exc
 
-    print("\n" + "═" * 55)
+    print("\n" + "═" * 60)
     print("  CONFIGURATION YOLOV11-SEG")
-    print("═" * 55)
-    print(f"  Modèle      : {args.modele}")
-    print(f"  Époques     : {args.epoques}")
-    print(f"  Batch       : {args.lot}")
-    print(f"  Image       : {args.taille_image}")
-    print(f"  LR initial  : {args.lr}")
-    print(f"  Weight decay: {args.weight_decay}")
-    print(f"  Patience    : {args.patience}")
-    print(f"  Workers     : {args.workers}")
-    print(f"  Dispositif  : {args.dispositif}")
+    print("═" * 60)
+    print(f"  Modèle         : {args.modele}")
+    print(f"  Époques        : {args.epoques}")
+    print(f"  Batch          : {args.lot}")
+    print(f"  Image          : {args.taille_image}px")
+    print(f"  LR initial     : {args.lr}  →  LR final : {args.lr * args.lrf:.2e}")
+    print(f"  Weight decay   : {args.weight_decay}")
+    print(f"  Warmup         : {args.warmup_epoques} époques")
+    print(f"  Close mosaic   : {args.close_mosaic} dernières époques")
+    print(f"  Patience ES    : {args.patience}")
+    print(f"  Copy-paste     : {args.copy_paste}")
+    print(f"  Mosaic         : {args.mosaic}")
+    print(f"  Mask ratio     : {args.mask_ratio}")
+    print(f"  Overlap mask   : {args.overlap_mask}")
+    print(f"  Cosine LR      : {args.cos_lr}")
+    print(f"  AMP            : {args.amp}")
+    print(f"  Workers        : {args.workers}")
+    print(f"  Dispositif     : {args.dispositif}")
+    if args.freeze > 0:
+        print(f"  Freeze         : {args.freeze} couches backbone gelées")
     if checkpoint_resume is not None:
-        print(f"  Reprise     : {checkpoint_resume}")
-    print("═" * 55 + "\n")
+        print(f"  Reprise        : {checkpoint_resume}")
+    print("═" * 60 + "\n")
 
     modele = YOLO(str(checkpoint_resume) if checkpoint_resume is not None else args.modele)
     installer_journaux_yolo(modele, actif=not args.silencieux)
@@ -324,8 +510,27 @@ def main() -> None:
         imgsz=args.taille_image,
         batch=args.lot,
         lr0=args.lr,
+        lrf=args.lrf,
         weight_decay=args.weight_decay,
+        warmup_epochs=args.warmup_epoques,
+        close_mosaic=args.close_mosaic,
         patience=args.patience,
+        mask_ratio=args.mask_ratio,
+        overlap_mask=args.overlap_mask,
+        copy_paste=args.copy_paste,
+        mosaic=args.mosaic,
+        mixup=args.mixup,
+        degrees=args.degrees,
+        translate=args.translate,
+        scale=args.scale,
+        fliplr=args.fliplr,
+        flipud=args.flipud,
+        hsv_h=args.hsv_h,
+        hsv_s=args.hsv_s,
+        hsv_v=args.hsv_v,
+        cos_lr=args.cos_lr,
+        freeze=args.freeze if args.freeze > 0 else None,
+        amp=args.amp,
         device=_device_ultralytics(args.dispositif),
         workers=args.workers,
         project=str(racine_sorties / "entrainements"),

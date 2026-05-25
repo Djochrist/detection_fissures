@@ -35,3 +35,13 @@ Thumbs.db
 
 # Local Colab guide
 COLAB_TRAINING_GUIDE.md
+
+# Replit
+.replit
+replit.nix
+replit.md
+.local/
+
+# Archives d'export
+*.tar.gz
+*.zip

@@ -571,4 +571,63 @@ def afficher_tableau_metriques(metriques: Dict[str, float]) -> None:
         barre = "█" * int(valeur * 20)
         print(f"  {label} : {valeur:.4f}  {barre}")
 
+    print(f"{'═'*55}")
+    print()
+    print("  SIGNIFICATION DES MÉTRIQUES")
+    print(f"  {'─'*51}")
+    print("  mAP [0.5:0.95]  Métrique officielle COCO. Moyenne des mAP sur")
+    print("                  10 seuils IoU (0.50, 0.55, …, 0.95). Exigeant :")
+    print("                  récompense la précision PIXEL des masques.")
+    print("                  Cible réaliste : > 0.35 pour un réseau de fissures.")
+    print()
+    print("  mAP @ IoU=0.50  Détection considérée correcte si IoU ≥ 50 %.")
+    print("                  Métrique principale pour comparer les modèles.")
+    print("                  Cible : > 0.55  │  Bon : > 0.70  │  Excellent : > 0.80")
+    print()
+    print("  mAP @ IoU=0.75  Critère strict : 75 % de chevauchement requis.")
+    print("                  Mesure la qualité fine du contour des masques.")
+    print("                  Écart mAP50 - mAP75 > 0.15 → contours imprécis.")
+    print()
+    print("  mAR @ 100 dét.  Rappel maximal avec jusqu'à 100 détections/image.")
+    print("                  Mesure la capacité à NE PAS MANQUER de fissures.")
+    print("                  Critique pour inspection structurelle (faux négatifs).")
+    print()
+    print("  Précision       Parmi les fissures détectées, combien sont réelles.")
+    print("                  Mesurée pixel à pixel sur les masques binarisés.")
+    print("                  Précision faible → beaucoup de fausses alarmes.")
+    print()
+    print("  Rappel          Parmi les fissures réelles, combien sont trouvées.")
+    print("                  Rappel faible → fissures manquées (dangereux).")
+    print("                  Priorité rappel > précision pour la sécurité.")
+    print()
+    print("  F1 Score        Moyenne harmonique Précision/Rappel.")
+    print("                  Bilan unique de la qualité de segmentation pixel.")
+    print("                  Cible : > 0.60  │  Bon : > 0.70  │  Excellent : > 0.80")
+    print()
+    print("  INTERPRÉTATION RAPIDE")
+    print(f"  {'─'*51}")
+
+    map50 = metriques.get("map_50", 0.0)
+    rappel = metriques.get("rappel", 0.0)
+    f1 = metriques.get("f1_score", 0.0)
+
+    if map50 >= 0.70 and f1 >= 0.70:
+        niveau = "EXCELLENT — modèle prêt pour inspection structurelle"
+        icone  = "✓✓"
+    elif map50 >= 0.50 and f1 >= 0.60:
+        niveau = "BON — résultats exploitables, affinage possible"
+        icone  = "✓"
+    elif map50 >= 0.35:
+        niveau = "ACCEPTABLE — continuer l'entraînement ou augmenter le dataset"
+        icone  = "~"
+    else:
+        niveau = "INSUFFISANT — vérifier données, lr, augmentation"
+        icone  = "✗"
+
+    if rappel < 0.50 and map50 > 0.50:
+        print("  ⚠  Rappel faible : des fissures sont manquées.")
+        print("     → Réduire le seuil de score (seuil_score_detection).")
+        print("     → Vérifier les annotations du dataset (masques complets).")
+
+    print(f"  {icone}  Niveau global : {niveau}")
     print(f"{'═'*55}\n")

@@ -118,6 +118,12 @@ def analyser_arguments() -> argparse.Namespace:
         help="Répertoire de sortie pour les modèles et journaux",
     )
     analyseur.add_argument(
+        "--decroissance-poids",
+        type=float,
+        default=configuration.entrainement.decroissance_poids,
+        help="Décroissance des poids AdamW (régularisation L2)",
+    )
+    analyseur.add_argument(
         "--resume",
         type=str,
         default=None,
@@ -235,6 +241,7 @@ def main() -> None:
     config.entrainement.nombre_epoques = args.epoques
     config.entrainement.taille_lot = args.lot
     config.entrainement.taux_apprentissage = args.lr
+    config.entrainement.decroissance_poids = args.decroissance_poids
     config.entrainement.patience_arret_precoce = args.patience
     config.entrainement.precision_mixte = not args.sans_mixte
     config.modele.taille_image_min = args.taille_image
@@ -346,6 +353,7 @@ def main() -> None:
                     "epoques": args.epoques,
                     "taille_lot": args.lot,
                     "taux_apprentissage": args.lr,
+                    "decroissance_poids": args.decroissance_poids,
                     "patience": args.patience,
                     "taille_image": args.taille_image,
                     "seuil_score": args.seuil_score,
