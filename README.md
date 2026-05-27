@@ -85,6 +85,16 @@ pip install ultralytics torchmetrics pycocotools
 pip install opencv-python-headless numpy scipy rich
 ```
 
+### Installation optionnelle par extras
+Pour limiter l'installation aux dépendances nécessaires, utilisez les extras du package :
+
+```bash
+pip install -e .          # installation minimale
+pip install -e .[yolo]     # installe YOLO et ultralytics
+pip install -e .[maskrcnn] # installe Mask R-CNN + dépendances PyTorch
+pip install -e .[full]     # installe l'ensemble complet
+```
+
 ### Vérifier l'installation et afficher les commandes
 
 ```bash

@@ -53,6 +53,8 @@ import random
 import shutil
 from pathlib import Path
 
+import cv2
+
 
 EXTENSIONS_IMAGES = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
 NOM_ANNOTATIONS   = "_annotations.coco.json"
@@ -196,13 +198,9 @@ def ajouter_images_dans_split(
             ):
                 nom_final = f"{stem}_sain{compteur:03d}{suffixe}"
                 compteur += 1
-            if nom_final == nom_fichier:
-                # Nom déjà résolu, pas de collision
-                pass
 
         if not apercu:
             # Déterminer les dimensions réelles de l'image
-            import cv2
             img_cv = cv2.imread(str(chemin_image))
             if img_cv is None:
                 print(f"  ⚠ Image illisible, ignorée : {chemin_image.name}")

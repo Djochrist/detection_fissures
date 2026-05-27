@@ -7,7 +7,7 @@ STRATÉGIE D'ENTRAÎNEMENT EN 3 PHASES
 Phase 1 — Échauffement (époques 1 à epoque_degelage_backbone) :
     → Backbone GELÉ (poids ImageNet conservés)
     → Seules les têtes de détection et masque sont entraînées
-    → LR standard (1e-4), convergence rapide
+    → LR standard (3e-4), convergence rapide
     → Objectif : stabiliser les têtes avant le fine-tuning
 
 Phase 2 — Dégelage partiel (époques degelage_backbone à degelage_complet) :
@@ -25,12 +25,13 @@ ANTI-OVERFITTING POUR PETIT DATASET :
 1. Transfer learning progressif (Phases 1-2-3)
 2. Weight decay L2 (5e-4)
 3. Gradient clipping (max_norm=1.0)
-4. Early stopping (patience=10 époques)
+4. Early stopping (patience=15 époques par défaut)
 5. Sauvegarde du meilleur modèle (validation mAP@0.5)
 6. Précision mixte (float16) pour entraînement plus rapide + régularisation légère
 """
 
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List
 
@@ -52,6 +53,36 @@ from .metriques import calculer_metriques_segmentation, afficher_tableau_metriqu
 
 
 console = Console()
+
+
+@dataclass(frozen=True)
+class PhaseEntrainement:
+    """Décrit une phase de fine-tuning Mask R-CNN."""
+
+    code: str
+    titre: str
+    couleur: str
+
+
+PHASE_TETES = PhaseEntrainement(
+    code="tetes",
+    titre="PHASE 1 : entraînement des têtes",
+    couleur="cyan",
+)
+PHASE_BACKBONE_PARTIEL = PhaseEntrainement(
+    code="backbone_partiel",
+    titre="PHASE 2 : dégelage layer3/layer4",
+    couleur="yellow",
+)
+PHASE_BACKBONE_COMPLET = PhaseEntrainement(
+    code="backbone_complet",
+    titre="PHASE 3 : fine-tuning complet",
+    couleur="green",
+)
+PHASES_PAR_CODE = {
+    phase.code: phase
+    for phase in (PHASE_TETES, PHASE_BACKBONE_PARTIEL, PHASE_BACKBONE_COMPLET)
+}
 
 
 class Entraineur:
@@ -89,12 +120,12 @@ class Entraineur:
         chargeur_train: DataLoader,
         chargeur_valid: DataLoader,
         dispositif: torch.device,
-        taux_apprentissage: float = 1e-4,
+        taux_apprentissage: float = 3e-4,
         decroissance_poids: float = 5e-4,
         nombre_epoques: int = 50,
-        epoque_degelage_backbone: int = 5,
-        epoque_degelage_complet: int = 15,
-        patience_arret_precoce: int = 10,
+        epoque_degelage_backbone: int = 2,
+        epoque_degelage_complet: int = 8,
+        patience_arret_precoce: int = 15,
         valeur_clip_gradient: float = 1.0,
         dossier_sorties: str | Path = "sorties/modeles",
         precision_mixte: bool = True,
@@ -134,38 +165,115 @@ class Entraineur:
         self.epoques_sans_amelioration: int = 0
         self.epoque_meilleur_modele: int = 0
         self.epoque_depart: int = 1
+        self.phase_active: PhaseEntrainement | None = None
 
         # Suivi des fichiers de checkpoint créés pendant l'exécution
         self._fichiers_checkpoint_crees: set[Path] = set()
 
-        # Phase 1 : Geler le backbone au démarrage
-        geler_backbone(self.modele)
+        self._valider_configuration_phases()
+        self._appliquer_phase(PHASE_TETES, epoque=1, annoncer=False)
         afficher_resume_modele(self.modele)
-
-        # Optimiseur (configuré après gélification)
-        self.optimiseur = self._creer_optimiseur()
-
-        # Scheduler cosinus
-        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(
-            self.optimiseur,
-            T_max=nombre_epoques,
-            eta_min=1e-6,
-        )
 
     def reprendre_checkpoint(self, checkpoint: Dict[str, object]) -> None:
         """Charge un checkpoint existant pour reprendre l'entraînement."""
+        epoque_checkpoint = int(checkpoint.get("epoque", 0))
         self.modele.load_state_dict(checkpoint["etat_modele"])
-        self.optimiseur.load_state_dict(checkpoint["etat_optimiseur"])
-        self.scheduler.load_state_dict(checkpoint["etat_scheduler"])
+
+        phase_checkpoint = self._phase_depuis_checkpoint(checkpoint, epoque_checkpoint)
+        self._appliquer_phase(phase_checkpoint, epoque=max(1, epoque_checkpoint), annoncer=False)
+        try:
+            self.optimiseur.load_state_dict(checkpoint["etat_optimiseur"])
+            self.scheduler.load_state_dict(checkpoint["etat_scheduler"])
+        except ValueError as exc:
+            console.print(
+                "[yellow]Optimiseur du checkpoint incompatible avec les phases "
+                f"actuelles ({exc}). Reprise avec un optimiseur neuf.[/yellow]"
+            )
+
         self.historique = checkpoint.get("historique", self.historique)
         self.meilleure_map_50 = checkpoint.get("meilleure_map_50", self.meilleure_map_50)
-        self.epoque_meilleur_modele = int(checkpoint.get("epoque", self.epoque_meilleur_modele))
-        self.epoque_depart = int(checkpoint.get("epoque", 0)) + 1
+        self.epoque_meilleur_modele = int(
+            checkpoint.get(
+                "epoque_meilleur_modele",
+                checkpoint.get("epoque", self.epoque_meilleur_modele),
+            )
+        )
+        self.epoque_depart = epoque_checkpoint + 1
         self.epoques_sans_amelioration = 0
         console.print(
             f"[green]Checkpoint chargé : époque {self.epoque_depart - 1}, "
             f"mAP@0.5 = {checkpoint.get('metriques', {}).get('map_50', 0.0):.4f}[/green]"
         )
+
+    def _valider_configuration_phases(self) -> None:
+        """Vérifie que les phases de fine-tuning sont cohérentes."""
+        if self.nombre_epoques < 1:
+            raise ValueError("nombre_epoques doit être >= 1.")
+        if self.epoque_degelage_backbone < 1:
+            raise ValueError("epoque_degelage_backbone doit être >= 1.")
+        if self.epoque_degelage_complet < self.epoque_degelage_backbone:
+            raise ValueError(
+                "epoque_degelage_complet doit être >= epoque_degelage_backbone."
+            )
+
+    def _phase_pour_epoque(self, epoque: int) -> PhaseEntrainement:
+        """Retourne la phase attendue pour une époque 1-indexée."""
+        if epoque >= self.epoque_degelage_complet:
+            return PHASE_BACKBONE_COMPLET
+        if epoque >= self.epoque_degelage_backbone:
+            return PHASE_BACKBONE_PARTIEL
+        return PHASE_TETES
+
+    def _phase_depuis_checkpoint(
+        self,
+        checkpoint: Dict[str, object],
+        epoque_checkpoint: int,
+    ) -> PhaseEntrainement:
+        """Récupère la phase sauvegardée, avec fallback pour anciens checkpoints."""
+        phase_code = checkpoint.get("phase_active")
+        if isinstance(phase_code, str) and phase_code in PHASES_PAR_CODE:
+            return PHASES_PAR_CODE[phase_code]
+        return self._phase_pour_epoque(max(1, epoque_checkpoint))
+
+    def _appliquer_phase(
+        self,
+        phase: PhaseEntrainement,
+        epoque: int,
+        annoncer: bool = True,
+    ) -> None:
+        """Applique gel/dégel, recrée optimiseur et scheduler pour la phase."""
+        if self.phase_active == phase:
+            return
+
+        if annoncer:
+            console.print(f"\n[bold {phase.couleur}]═══ {phase.titre} ═══[/bold {phase.couleur}]")
+
+        if phase == PHASE_TETES:
+            geler_backbone(self.modele)
+        elif phase == PHASE_BACKBONE_PARTIEL:
+            geler_backbone(self.modele)
+            degeler_couches_superieures(self.modele)
+        elif phase == PHASE_BACKBONE_COMPLET:
+            degeler_backbone_complet(self.modele)
+        else:
+            raise ValueError(f"Phase inconnue : {phase}")
+
+        self.phase_active = phase
+        self.optimiseur = self._creer_optimiseur()
+        self.scheduler = self._creer_scheduler(epoque)
+
+    def _creer_scheduler(self, epoque: int) -> optim.lr_scheduler.CosineAnnealingLR:
+        """Crée un scheduler cosinus robuste même si une phase démarre tard."""
+        epoques_restantes = max(1, self.nombre_epoques - epoque + 1)
+        return optim.lr_scheduler.CosineAnnealingLR(
+            self.optimiseur,
+            T_max=epoques_restantes,
+            eta_min=1e-6,
+        )
+
+    def _parametres_entrainables(self) -> list[torch.nn.Parameter]:
+        """Liste les paramètres actuellement entraînables."""
+        return [p for p in self.modele.parameters() if p.requires_grad]
 
     def _creer_optimiseur(self) -> optim.Optimizer:
         """
@@ -183,17 +291,20 @@ class Entraineur:
             Optimiseur AdamW configuré.
         """
         # Paramètres des têtes (toujours entraînables)
-        groupes_parametres = [
-            {
-                "params": [
-                    p for n, p in self.modele.named_parameters()
-                    if "backbone" not in n and p.requires_grad
-                ],
-                "lr": self.taux_apprentissage,
-                "weight_decay": self.decroissance_poids,
-                "name": "tetes",
-            },
+        params_tetes = [
+            p for n, p in self.modele.named_parameters()
+            if "backbone" not in n and p.requires_grad
         ]
+        groupes_parametres = []
+        if params_tetes:
+            groupes_parametres.append(
+                {
+                    "params": params_tetes,
+                    "lr": self.taux_apprentissage,
+                    "weight_decay": self.decroissance_poids,
+                    "name": "tetes",
+                }
+            )
 
         # Paramètres du backbone (si dégelés)
         params_backbone = [
@@ -208,7 +319,10 @@ class Entraineur:
                 "name": "backbone",
             })
 
-        return optim.AdamW(groupes_parametres)
+        if not groupes_parametres:
+            raise RuntimeError("Aucun paramètre entraînable trouvé pour l'optimiseur.")
+
+        return optim.AdamW(groupes_parametres, betas=(0.9, 0.999))
 
     def _gerer_phase_degelage(self, epoque: int) -> None:
         """
@@ -220,26 +334,7 @@ class Entraineur:
         Args:
             epoque : Époque courante (1-indexée).
         """
-        if epoque == self.epoque_degelage_backbone:
-            console.print(f"\n[bold yellow]═══ PHASE 2 : Dégelage couches supérieures ═══[/bold yellow]")
-            degeler_couches_superieures(self.modele)
-            self.optimiseur = self._creer_optimiseur()
-            # Réinitialiser le scheduler pour les nouvelles phases
-            self.scheduler = optim.lr_scheduler.CosineAnnealingLR(
-                self.optimiseur,
-                T_max=self.nombre_epoques - epoque,
-                eta_min=1e-6,
-            )
-
-        elif epoque == self.epoque_degelage_complet:
-            console.print(f"\n[bold green]═══ PHASE 3 : Fine-tuning complet ═══[/bold green]")
-            degeler_backbone_complet(self.modele)
-            self.optimiseur = self._creer_optimiseur()
-            self.scheduler = optim.lr_scheduler.CosineAnnealingLR(
-                self.optimiseur,
-                T_max=self.nombre_epoques - epoque,
-                eta_min=1e-6,
-            )
+        self._appliquer_phase(self._phase_pour_epoque(epoque), epoque=epoque)
 
     def _etape_entrainement(self, images: List, cibles: List) -> float:
         """
@@ -256,19 +351,21 @@ class Entraineur:
         images = [img.to(self.dispositif) for img in images]
         cibles = [{k: v.to(self.dispositif) for k, v in c.items()} for c in cibles]
 
-        self.optimiseur.zero_grad()
+        self.optimiseur.zero_grad(set_to_none=True)
 
         if self.precision_mixte:
             # Précision mixte : calcul en float16, accumulation en float32
             with autocast("cuda"):
                 dictionnaire_pertes = self.modele(images, cibles)
                 perte = self.perte_combinee(dictionnaire_pertes)
+                if not torch.isfinite(perte):
+                    raise FloatingPointError(f"Perte non finie : {dictionnaire_pertes}")
 
             # Mise à l'échelle du gradient pour float16
             self.gradscaler.scale(perte).backward()
             self.gradscaler.unscale_(self.optimiseur)
             torch.nn.utils.clip_grad_norm_(
-                self.modele.parameters(),
+                self._parametres_entrainables(),
                 self.valeur_clip_gradient,
             )
             self.gradscaler.step(self.optimiseur)
@@ -278,9 +375,11 @@ class Entraineur:
             # Mode précision normale (CPU ou GPU ancien)
             dictionnaire_pertes = self.modele(images, cibles)
             perte = self.perte_combinee(dictionnaire_pertes)
+            if not torch.isfinite(perte):
+                raise FloatingPointError(f"Perte non finie : {dictionnaire_pertes}")
             perte.backward()
             torch.nn.utils.clip_grad_norm_(
-                self.modele.parameters(),
+                self._parametres_entrainables(),
                 self.valeur_clip_gradient,
             )
             self.optimiseur.step()
@@ -339,8 +438,10 @@ class Entraineur:
             "etat_modele": self.modele.state_dict(),
             "etat_optimiseur": self.optimiseur.state_dict(),
             "etat_scheduler": self.scheduler.state_dict(),
+            "phase_active": self.phase_active.code if self.phase_active else None,
             "metriques": metriques,
             "meilleure_map_50": self.meilleure_map_50,
+            "epoque_meilleur_modele": self.epoque_meilleur_modele,
             "historique": self.historique,
         }
 
@@ -392,6 +493,11 @@ class Entraineur:
             self.modele.train()
             pertes_epoque = []
             nombre_lots = len(self.chargeur_train)
+            if nombre_lots == 0:
+                raise RuntimeError(
+                    "Le DataLoader d'entraînement ne contient aucun lot. "
+                    "Réduisez --lot ou vérifiez le dataset."
+                )
 
             for idx_lot, (images, cibles) in enumerate(self.chargeur_train):
                 perte_lot = self._etape_entrainement(images, cibles)

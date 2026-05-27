@@ -36,7 +36,8 @@ Définis le chemin :
 ```python
 DATASET = "/content/drive/MyDrive/dataset"
 SORTIES_MASK = "/content/drive/MyDrive/detection_fissures_sorties_maskrcnn"
-SORTIES_YOLO = "/content/drive/MyDrive/detection_fissures_sorties_yolo11"
+SORTIES_YOLO = "/content/drive/MyDrive/detection_fissures_sorties_yolo26"
+ANALYSES = "/content/drive/MyDrive/detection_fissures_analyses"
 ```
 
 ## 3. Cloner le projet
@@ -82,7 +83,7 @@ Vérification :
   --sorties /content/drive/MyDrive/detection_fissures_test_maskrcnn \
   --epoques 1 \
   --lot 1 \
-  --lr 5e-5 \
+  --lr 3e-4 \
   --taille-image 384 \
   --dispositif cuda
 ```
@@ -96,7 +97,7 @@ Vérification :
   --sorties "$SORTIES_MASK" \
   --epoques 50 \
   --lot 2 \
-  --lr 5e-5 \
+  --lr 3e-4 \
   --taille-image 384 \
   --dispositif cuda
 ```
@@ -112,26 +113,27 @@ Si Colab donne `CUDA out of memory`, relance avec `--lot 1`.
   --sorties "$SORTIES_MASK" \
   --epoques 100 \
   --lot 2 \
-  --lr 5e-5 \
+  --lr 3e-4 \
   --taille-image 384 \
   --seuil-score 0.05 \
   --dispositif cuda \
   --resume "$SORTIES_MASK/modeles/dernier_modele.pth"
 ```
 
-## 9. Entraîner YOLOv11-seg
+## 9. Entraîner YOLO26-seg
 
 ```bash
 !python entrainer_yolo.py \
   --donnees "$DATASET" \
   --sorties "$SORTIES_YOLO" \
-  --modele yolo11n-seg.pt \
+  --modele yolo26s-seg.pt \
   --epoques 50 \
   --lot 8 \
-  --lr 3e-4 \
-  --weight-decay 1e-4 \
-  --patience 15 \
+  --lr 1e-3 \
+  --weight-decay 5e-4 \
+  --patience 25 \
   --taille-image 384 \
+  --mask-ratio 2 \
   --save-period 5 \
   --dispositif cuda
 ```
@@ -147,11 +149,35 @@ Pour reprendre après une coupure Colab :
 !python entrainer_yolo.py \
   --donnees "$DATASET" \
   --sorties "$SORTIES_YOLO" \
-  --resume "$SORTIES_YOLO/entrainements/yolo11_seg_fissures/weights/last.pt" \
+  --resume "$SORTIES_YOLO/entrainements/yolo_seg_fissures/weights/last.pt" \
   --dispositif cuda
 ```
 
-## 10. Fichiers à récupérer
+## 10. Analyser des images après entraînement
+
+Les images à analyser peuvent être dans n'importe quel dossier Drive. Elles ne
+sont pas déplacées : le script crée des copies annotées dans `ANALYSES`.
+
+```bash
+!python analyser.py \
+  --modele "$SORTIES_YOLO/entrainements/yolo_seg_fissures/weights/best.pt" \
+  --images /content/drive/MyDrive/images_a_tester \
+  --dossier-sortie "$ANALYSES" \
+  --dispositif cuda
+```
+
+Pour Mask R-CNN :
+
+```bash
+!python analyser.py \
+  --backend maskrcnn \
+  --modele "$SORTIES_MASK/modeles/meilleur_modele.pth" \
+  --images /content/drive/MyDrive/images_a_tester \
+  --dossier-sortie "$ANALYSES" \
+  --dispositif cuda
+```
+
+## 11. Fichiers à récupérer
 
 Mask R-CNN :
 
@@ -161,9 +187,21 @@ $SORTIES_MASK/modeles/dernier_modele.pth
 $SORTIES_MASK/journaux/historique_entrainement.json
 ```
 
-YOLOv11 :
+YOLO-seg :
 
 ```text
+$SORTIES_YOLO/dataset_yolo/                         # dataset converti YOLO
 $SORTIES_YOLO/entrainements/
+$SORTIES_YOLO/entrainements/yolo_seg_fissures/weights/best.pt
+$SORTIES_YOLO/entrainements/yolo_seg_fissures/weights/last.pt
 $SORTIES_YOLO/evaluations/
+```
+
+Analyse :
+
+```text
+$ANALYSES/yolo/rapport_analyse.json
+$ANALYSES/yolo/images_annotees/
+$ANALYSES/maskrcnn/rapport_analyse.json             # si --backend maskrcnn
+$ANALYSES/maskrcnn/images_annotees/
 ```

@@ -40,7 +40,9 @@ def creer_chargeurs_donnees(
     annotations_valid: str | Path,
     annotations_test: str | Path,
     taille_lot: int = 4,
-    taille_image: int = 384,
+    taille_image: int = 512,
+    aire_min_masque: int = 8,
+    inclure_images_sans_fissures: bool = True,
     nombre_workers: int = 2,
     epingler_memoire: bool = True,
 ) -> Dict[str, DataLoader]:
@@ -56,6 +58,8 @@ def creer_chargeurs_donnees(
         annotations_test   : Fichier _annotations.coco.json test.
         taille_lot         : Nombre d'images par lot.
         taille_image       : Résolution cible (carré, en pixels).
+        aire_min_masque    : Surface minimale de masque conservée.
+        inclure_images_sans_fissures : Conserve les images sans fissure annotée.
         nombre_workers     : Processus parallèles de chargement.
         epingler_memoire   : Accélère les transferts CPU→GPU.
 
@@ -66,18 +70,24 @@ def creer_chargeurs_donnees(
         chemin_images=chemin_train,
         chemin_annotations=annotations_train,
         taille_image=taille_image,
+        aire_min_masque=aire_min_masque,
+        inclure_images_sans_fissures=inclure_images_sans_fissures,
     )
 
     jeu_validation = JeuDonneesFissuresCOCO(
         chemin_images=chemin_valid,
         chemin_annotations=annotations_valid,
         taille_image=taille_image,
+        aire_min_masque=aire_min_masque,
+        inclure_images_sans_fissures=inclure_images_sans_fissures,
     )
 
     jeu_test = JeuDonneesFissuresCOCO(
         chemin_images=chemin_test,
         chemin_annotations=annotations_test,
         taille_image=taille_image,
+        aire_min_masque=aire_min_masque,
+        inclure_images_sans_fissures=inclure_images_sans_fissures,
     )
 
     chargeur_entrainement = DataLoader(
@@ -87,7 +97,7 @@ def creer_chargeurs_donnees(
         num_workers=nombre_workers,
         pin_memory=epingler_memoire,
         collate_fn=collate_fn_detection,
-        drop_last=True,
+        drop_last=False,
     )
 
     chargeur_validation = DataLoader(
@@ -118,6 +128,8 @@ def creer_chargeurs_donnees(
     print(f"  Test         : {len(jeu_test):>6} images | {len(chargeur_test):>4} lots")
     print(f"  Taille lot   : {taille_lot}")
     print(f"  Résolution   : {taille_image}×{taille_image}")
+    print(f"  Aire min mask: {aire_min_masque} px")
+    print(f"  Images fond  : {'gardées' if inclure_images_sans_fissures else 'exclues'}")
     print(f"  Workers      : {nombre_workers}")
     print(f"{'═'*55}\n")
 

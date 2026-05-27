@@ -135,6 +135,9 @@ def calculer_perte_totale_masque_rcnn(
     Somme directe de toutes les pertes Mask R-CNN (poids uniformes).
 
     Équivalent à PerteCombineeMaskRCNN avec tous les poids à 1.0.
+    Utilitaire conservé pour le débogage et les expériences rapides.
+    Pour l'entraînement en production, préférer PerteCombineeMaskRCNN
+    qui permet de pondérer chaque composante.
 
     Args:
         dictionnaire_pertes : Dictionnaire retourné par Mask R-CNN.
@@ -152,6 +155,10 @@ def calculer_perte_totale_masque_rcnn(
 class PerteUnifiedFocal(nn.Module):
     """
     Unified Focal Loss pour segmentation binaire avec fort déséquilibre de classes.
+
+    STATUT : Implémentation complète, non activée dans le pipeline d'entraînement.
+    Pour l'utiliser, passer perte_fn=PerteUnifiedFocal(...) à l'entraîneur ou
+    remplacer PerteCombineeMaskRCNN dans entrainement/entraineur.py.
 
     Référence :
         Yeung M. et al. (2022). Unified Focal loss: Generalising Dice and
@@ -331,6 +338,10 @@ class PerteUnifiedFocal(nn.Module):
 class PerteMasqueRCNNUnifiedFocal(nn.Module):
     """
     Remplacement UFC de la perte BCE interne de Mask R-CNN pour la tête masque.
+
+    STATUT : Implémentation complète, non activée dans le pipeline d'entraînement.
+    Pour l'utiliser, remplacer loss_mask dans le dictionnaire de pertes retourné
+    par Mask R-CNN (voir UTILISATION RECOMMANDÉE ci-dessous).
 
     CONTEXTE :
         Par défaut, Mask R-CNN calcule loss_mask = BCE(masques_prédits, masques_vrais).

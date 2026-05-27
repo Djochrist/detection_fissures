@@ -54,9 +54,12 @@ class JeuDonneesFissuresCOCO(Dataset):
       - Images non annotées (sans fissures) → cibles vides, exemples négatifs
 
     Args:
-        chemin_images      : Dossier contenant les images (train/, valid/ ou test/).
-        chemin_annotations : Fichier _annotations.coco.json du split.
-        taille_image       : Taille de redimensionnement (carré, en pixels).
+        chemin_images               : Dossier contenant les images (train/, valid/ ou test/).
+        chemin_annotations          : Fichier _annotations.coco.json du split.
+        taille_image                : Taille de redimensionnement (carré, en pixels).
+        aire_min_masque             : Surface minimale (px²) d'un masque conservé après
+                                      redimensionnement. Élimine les artefacts d'annotation.
+        inclure_images_sans_fissures: Si False, exclut les images sans fissure annotée.
     """
 
     def __init__(
@@ -64,6 +67,8 @@ class JeuDonneesFissuresCOCO(Dataset):
         chemin_images: str | Path,
         chemin_annotations: str | Path,
         taille_image: int = 384,
+        aire_min_masque: int = 8,
+        inclure_images_sans_fissures: bool = True,
     ) -> None:
         super().__init__()
 
@@ -81,9 +86,23 @@ class JeuDonneesFissuresCOCO(Dataset):
             )
 
         self.api_coco = COCO(str(self.chemin_annotations))
+        self.aire_min_masque = aire_min_masque
+        self.inclure_images_sans_fissures = inclure_images_sans_fissures
 
-        # Toutes les images du split (annotées ET non annotées)
-        self.ids_images = sorted(self.api_coco.imgs.keys())
+        # Toutes les images du split (annotées ET non annotées par défaut)
+        tous_ids = sorted(self.api_coco.imgs.keys())
+
+        if inclure_images_sans_fissures:
+            self.ids_images = tous_ids
+        else:
+            # Exclure les images sans aucune annotation de segmentation
+            self.ids_images = [
+                id_img for id_img in tous_ids
+                if any(
+                    len(ann.get("segmentation", [])) > 0
+                    for ann in self.api_coco.loadAnns(self.api_coco.getAnnIds(imgIds=id_img))
+                )
+            ]
 
         # Stats pour l'affichage
         self._nb_avec_fissures, self._nb_sans_fissures = self._compter_types()
@@ -147,16 +166,18 @@ class JeuDonneesFissuresCOCO(Dataset):
             # Décoder le masque polygonal → matrice binaire (taille originale)
             masque_orig = self.api_coco.annToMask(ann)
 
-            # Ignorer les masques trop petits (artéfacts d'annotation)
-            if masque_orig.sum() < 50:
-                continue
-
-            # Redimensionner le masque
+            # Redimensionner le masque dans l'espace cible
             masque_redim = cv2.resize(
                 masque_orig.astype(np.uint8),
                 (self.taille_image, self.taille_image),
                 interpolation=cv2.INTER_NEAREST,
             )
+
+            # Ignorer les masques trop petits après redimensionnement
+            # (artéfacts d'annotation, masques dégénérés ou quasi-vides)
+            aire_redim = int(masque_redim.sum())
+            if aire_redim < self.aire_min_masque:
+                continue
 
             indices_y, indices_x = np.where(masque_redim > 0)
             if len(indices_x) == 0:

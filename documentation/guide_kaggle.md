@@ -3,7 +3,7 @@
 Ce projet entraîne uniquement deux modèles :
 
 - Mask R-CNN ResNet50-FPN-V2 avec `entrainer.py`
-- YOLOv11-seg avec `entrainer_yolo.py`
+- YOLO26-seg avec `entrainer_yolo.py` (YOLO11 reste compatible)
 
 ## 1. Préparer le Notebook Kaggle
 
@@ -85,7 +85,7 @@ Ce test vérifie le dataset, les imports, le GPU, la sauvegarde et une époque c
   --sorties /kaggle/working/sorties_maskrcnn_test \
   --epoques 1 \
   --lot 1 \
-  --lr 5e-5 \
+  --lr 3e-4 \
   --taille-image 384 \
   --dispositif cuda
 ```
@@ -103,7 +103,7 @@ Réglage prudent pour Kaggle :
   --sorties /kaggle/working/sorties_maskrcnn \
   --epoques 50 \
   --lot 2 \
-  --lr 5e-5 \
+  --lr 3e-4 \
   --taille-image 384 \
   --dispositif cuda
 ```
@@ -119,21 +119,22 @@ Les fichiers importants seront :
 /kaggle/working/sorties_maskrcnn/journaux/historique_entrainement.json
 ```
 
-## 6. Entraîner YOLOv11-seg
+## 6. Entraîner YOLO26-seg
 
-YOLOv11 convertit automatiquement le COCO vers YOLO-seg dans le dossier de sortie.
+YOLO convertit automatiquement le COCO vers YOLO-seg dans le dossier de sortie.
 
 ```bash
 !python entrainer_yolo.py \
   --donnees "$DATASET" \
-  --sorties /kaggle/working/sorties_yolo11 \
-  --modele yolo11n-seg.pt \
+  --sorties /kaggle/working/sorties_yolo26 \
+  --modele yolo26s-seg.pt \
   --epoques 50 \
   --lot 8 \
-  --lr 3e-4 \
-  --weight-decay 1e-4 \
-  --patience 15 \
+  --lr 1e-3 \
+  --weight-decay 5e-4 \
+  --patience 25 \
   --taille-image 384 \
+  --mask-ratio 2 \
   --dispositif cuda
 ```
 
@@ -142,33 +143,48 @@ Pour un modèle plus fort si le GPU tient :
 ```bash
 !python entrainer_yolo.py \
   --donnees "$DATASET" \
-  --sorties /kaggle/working/sorties_yolo11_s \
-  --modele yolo11s-seg.pt \
+  --sorties /kaggle/working/sorties_yolo26_m \
+  --modele yolo26m-seg.pt \
   --epoques 50 \
   --lot 4 \
-  --lr 3e-4 \
-  --weight-decay 1e-4 \
-  --patience 15 \
+  --lr 1e-3 \
+  --weight-decay 5e-4 \
+  --patience 25 \
   --taille-image 384 \
+  --mask-ratio 2 \
   --dispositif cuda
 ```
 
 ## 7. Sauvegarder les résultats Kaggle
 
+Pour analyser des images après entraînement YOLO-seg :
+
+```bash
+!python analyser.py \
+  --modele /kaggle/working/sorties_yolo26/entrainements/yolo_seg_fissures/weights/best.pt \
+  --images /kaggle/input/images-a-tester \
+  --dossier-sortie /kaggle/working/analyses \
+  --dispositif cuda
+```
+
+Le rapport sera dans `/kaggle/working/analyses/yolo/rapport_analyse.json`.
+Les copies annotées seront dans `/kaggle/working/analyses/yolo/images_annotees/`.
+Les images originales dans `/kaggle/input/...` ne sont jamais modifiées.
+
 Tout ce qui est dans `/kaggle/working` apparaît dans l'onglet `Output` après
 l'exécution du Notebook. Avant de fermer Kaggle, vérifie :
 
 ```bash
-!find /kaggle/working -maxdepth 4 -type f \( -name "*.pth" -o -name "*.pt" -o -name "*.json" -o -name "results.csv" \) -print
+!find /kaggle/working -maxdepth 5 -type f \( -name "*.pth" -o -name "*.pt" -o -name "*.json" -o -name "results.csv" -o -name "*_analyse.jpg" -o -name "*_pred.jpg" \) -print
 ```
 
-Pour reprendre YOLOv11-seg depuis un ancien output Kaggle :
+Pour reprendre YOLO-seg depuis un ancien output Kaggle :
 
 ```bash
 !python entrainer_yolo.py \
   --donnees "$DATASET" \
-  --sorties /kaggle/working/sorties_yolo11 \
-  --resume /kaggle/input/ancien-output/sorties_yolo11/entrainements/yolo11_seg_fissures/weights/last.pt \
+  --sorties /kaggle/working/sorties_yolo26 \
+  --resume /kaggle/input/ancien-output/sorties_yolo26/entrainements/yolo_seg_fissures/weights/last.pt \
   --dispositif cuda
 ```
 
@@ -182,7 +198,7 @@ Input Kaggle puis lance :
   --sorties /kaggle/working/sorties_maskrcnn \
   --epoques 100 \
   --lot 2 \
-  --lr 5e-5 \
+  --lr 3e-4 \
   --taille-image 384 \
   --dispositif cuda \
   --resume /kaggle/input/ancien-output/sorties_maskrcnn/modeles/dernier_modele.pth

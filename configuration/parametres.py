@@ -91,7 +91,7 @@ ARCHITECTURES_MODELES_SEGMENTATION: tuple[str, ...] = (
     ARCHITECTURE_MASKRCNN_RESNET50_FPN_V2,
 )
 
-# YOLO11-seg : yolo11s recommandé pour fissures (nano trop simple pour objet fin)
+# YOLO-seg : yolo11s recommandé pour fissures (nano trop simple pour objet fin)
 MODELE_YOLOV11_SEG_DEFAUT = "yolo11s-seg.pt"
 MODELES_YOLOV11_SEG_OFFICIELS: tuple[str, ...] = (
     "yolo11n-seg.pt",
@@ -100,6 +100,10 @@ MODELES_YOLOV11_SEG_OFFICIELS: tuple[str, ...] = (
     "yolo11l-seg.pt",
     "yolo11x-seg.pt",
 )
+
+# Alias génériques (compatibilité YOLO11-seg et futures versions)
+MODELE_YOLO_SEG_DEFAUT = MODELE_YOLOV11_SEG_DEFAUT
+MODELES_YOLO_SEG_OFFICIELS = MODELES_YOLOV11_SEG_OFFICIELS
 
 
 @dataclass
@@ -184,6 +188,34 @@ class ParametresModele:
 
     # 50 détections max par image (plus que suffisant pour fissures)
     detections_max_par_image: int = 50
+
+    # Surface minimale d'un masque conservé après redimensionnement (en pixels²)
+    # 8px² élimine les artefacts de redimensionnement sans exclure les fissures fines
+    aire_min_masque: int = 8
+
+    # Conserver les images sans fissure annotée (images de fond)
+    # True recommandé : elles apprennent au modèle à ne pas halluciner
+    inclure_images_sans_fissures: bool = True
+
+    # Ancres RPN adaptées aux fissures longues et minces
+    # Petites tailles (8-128px) pour fissures à 384×384
+    tailles_ancres_rpn: tuple = (
+        (8,),
+        (16,),
+        (32,),
+        (64,),
+        (128,),
+    )
+
+    # Ratios hauteur/largeur : 0.25 et 4.0 capturent les fissures horizontales/verticales
+    # 1.0 garde la compatibilité avec la tête RPN préentraînée COCO (3 ratios = 3 ancres)
+    ratios_ancres_rpn: tuple = (
+        (0.25, 1.0, 4.0),
+        (0.25, 1.0, 4.0),
+        (0.25, 1.0, 4.0),
+        (0.25, 1.0, 4.0),
+        (0.25, 1.0, 4.0),
+    )
 
 
 @dataclass

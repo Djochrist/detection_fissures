@@ -83,7 +83,7 @@ uv run python entrainer.py \
   --sorties sorties_test_maskrcnn \
   --epoques 1 \
   --lot 1 \
-  --lr 5e-5 \
+  --lr 3e-4 \
   --taille-image 384 \
   --dispositif auto
 ```
@@ -99,7 +99,7 @@ uv run python entrainer.py \
   --sorties sorties_maskrcnn \
   --epoques 50 \
   --lot 2 \
-  --lr 5e-5 \
+  --lr 3e-4 \
   --taille-image 384 \
   --dispositif cuda
 ```
@@ -107,31 +107,32 @@ uv run python entrainer.py \
 Si tu as plus de mémoire GPU, essaie `--lot 4`. Si tu as `CUDA out of memory`,
 relance avec `--lot 1`.
 
-## 7. Entraînement YOLOv11-seg
+## 7. Entraînement YOLO26-seg
 
 ```bash
 uv run python entrainer_yolo.py \
   --donnees "$DATASET" \
-  --sorties sorties_yolo11 \
-  --modele yolo11n-seg.pt \
+  --sorties sorties_yolo26 \
+  --modele yolo26s-seg.pt \
   --epoques 50 \
   --lot 8 \
-  --lr 3e-4 \
-  --weight-decay 1e-4 \
-  --patience 15 \
+  --lr 1e-3 \
+  --weight-decay 5e-4 \
+  --patience 25 \
   --taille-image 384 \
+  --mask-ratio 2 \
   --dispositif cuda
 ```
 
 Pour un GPU plus petit, utilise `--lot 4` ou `--lot 2`.
 
-## 8. Reprendre YOLOv11-seg
+## 8. Reprendre YOLO-seg
 
 ```bash
 uv run python entrainer_yolo.py \
   --donnees "$DATASET" \
-  --sorties sorties_yolo11 \
-  --resume sorties_yolo11/entrainements/yolo11_seg_fissures/weights/last.pt \
+  --sorties sorties_yolo26 \
+  --resume sorties_yolo26/entrainements/yolo_seg_fissures/weights/last.pt \
   --dispositif cuda
 ```
 
@@ -144,8 +145,41 @@ uv run python entrainer.py \
   --sorties sorties_maskrcnn \
   --epoques 100 \
   --lot 2 \
-  --lr 5e-5 \
+  --lr 3e-4 \
   --taille-image 384 \
   --dispositif cuda \
   --resume sorties_maskrcnn/modeles/dernier_modele.pth
+```
+
+## 10. Analyser des images et retrouver les sorties
+
+Les images source restent dans le dossier passé à `--images`. Les images
+annotées sont écrites dans `analyses/<backend>/images_annotees/`.
+
+```bash
+uv run python analyser.py \
+  --modele sorties_yolo26/entrainements/yolo_seg_fissures/weights/best.pt \
+  --images photos_test/ \
+  --dossier-sortie analyses
+```
+
+Sorties principales :
+
+```text
+sorties_maskrcnn/
+├── modeles/meilleur_modele.pth
+├── modeles/dernier_modele.pth
+└── journaux/historique_entrainement.json
+
+sorties_yolo26/
+├── dataset_yolo/images/{train,valid,test}/
+├── dataset_yolo/labels/{train,valid,test}/
+├── entrainements/yolo_seg_fissures/weights/best.pt
+├── entrainements/yolo_seg_fissures/weights/last.pt
+└── evaluations/yolo_seg_fissures_test/
+
+analyses/
+└── yolo/
+    ├── rapport_analyse.json
+    └── images_annotees/*_analyse.jpg
 ```

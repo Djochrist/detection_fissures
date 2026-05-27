@@ -3,9 +3,9 @@ Package des architectures de modèles de segmentation.
 
 Modèles — segmentation d'INSTANCE :
     Mask R-CNN ResNet50-FPN-V2  (torchvision)
-    YOLOv11-seg                 (Ultralytics, entraînement séparé)
+    YOLO-seg                    (Ultralytics, entraînement séparé)
     → Détecte et segmente chaque fissure séparément
-    → Format COCO natif pour Mask, conversion YOLO-seg pour YOLOv11
+    → Format COCO natif pour Mask, conversion YOLO-seg pour YOLO
 """
 from .masque_rcnn import (
     ARCHITECTURES_MASK_RCNN,

@@ -189,18 +189,18 @@ de détail en même temps :
 
 Sans le FPN, le modèle manquerait soit les grandes fissures soit les petites.
 
-### Pourquoi Mask R-CNN et YOLOv11, et pas autre chose ?
+### Pourquoi Mask R-CNN et YOLO-seg, et pas autre chose ?
 
-| Question | Mask R-CNN ResNet50-FPN-V2 | YOLOv11-seg |
+| Question | Mask R-CNN ResNet50-FPN-V2 | YOLO-seg |
 |---|---|---|
 | Segmentation d'instance ? | Oui — chaque fissure a son propre masque | Oui — chaque fissure a son propre masque |
 | Précision des masques ? | Très haute | Bonne, avec une vitesse élevée |
-| Adapté à petit dataset ? | Oui, grâce au transfer learning COCO | Oui, via les poids YOLOv11 préentraînés |
+| Adapté à petit dataset ? | Oui, grâce au transfer learning COCO | Oui, via les poids YOLO préentraînés |
 | Analyse géométrique possible ? | Oui — pipeline principal d'analyse | Oui — surtout pour comparaison vitesse/précision |
 
 Pour analyser la **largeur, l'orientation et la longueur** de chaque fissure, on a besoin de
 masques précis pixel par pixel. Le projet garde donc uniquement deux modèles crédibles :
-Mask R-CNN ResNet50-FPN-V2 pour la précision et YOLOv11-seg pour la rapidité et le déploiement.
+Mask R-CNN ResNet50-FPN-V2 pour la précision et YOLO-seg pour la rapidité et le déploiement.
 
 ---
 
@@ -244,7 +244,7 @@ L'entraînement de notre modèle est divisé en 3 phases progressives.
 C'est une stratégie pour **éviter que le modèle oublie ce qu'il sait déjà** tout en
 l'adaptant aux fissures.
 
-### Phase 1 — Époques 1 à 5 : Backbone gelé
+### Phase 1 — Époque 1 : Backbone gelé
 
 **Ce qui se passe :**
 Le backbone (ResNet-50) est **gelé** — ses paramètres ne changent pas.
@@ -261,13 +261,10 @@ Les pertes diminuent rapidement car les têtes convergent vite.
 
 ```
 Époque 1 | Perte = 3.21  ↓
-Époque 2 | Perte = 2.87  ↓
-Époque 3 | Perte = 2.54  ↓
-Époque 4 | Perte = 2.31  ↓
-Époque 5 | Perte = 2.15  ↓  ← transition phase 2
+Époque 2 | Perte = 2.87  ↓  ← transition phase 2
 ```
 
-### Phase 2 — Époques 5 à 15 : Dégelage progressif
+### Phase 2 — Époques 2 à 7 : Dégelage progressif
 
 **Ce qui se passe :**
 Les couches **layer3 et layer4** du backbone sont dégelées et commencent à apprendre,
@@ -283,7 +280,7 @@ ResNet-50 a 4 blocs de couches (layer1, layer2, layer3, layer4).
 Notre expert commence à "réentraîner son œil" pour voir spécifiquement les fissures,
 mais doucement pour ne pas perdre ses compétences générales.
 
-### Phase 3 — Époque 15 et au-delà : Fine-tuning complet
+### Phase 3 — Époque 8 et au-delà : Fine-tuning complet
 
 **Ce qui se passe :**
 Tout le modèle est dégelé et apprend ensemble.
@@ -361,7 +358,7 @@ selon une courbe en cosinus.
 fin, on fait de petits ajustements fins pour ne pas rater le meilleur point.
 
 ```
-Époque 1  → LR = 0.0001  (grand pas)
+Époque 1  → LR = 0.0003  (grand pas)
 Époque 25 → LR = 0.00005 (pas moyen)
 Époque 50 → LR = 0.000001 (tout petit pas)
 ```
@@ -597,7 +594,7 @@ Utilise les paramètres par défaut :
 - Dataset dans `dataset/`
 - 50 époques
 - Lot de 4 images
-- LR = 0.0001
+- LR = 0.0003
 - Taille image : 384×384
 
 ### Commandes avancées
@@ -609,8 +606,8 @@ python entrainer.py --donnees /chemin/vers/mon/dataset
 # Entraînement plus long avec plus de mémoire
 python entrainer.py --epoques 100 --lot 8
 
-# Entraînement plus précis avec LR plus faible
-python entrainer.py --lr 5e-5
+# Entraînement plus conservateur avec LR plus faible
+python entrainer.py --lr 1e-4
 
 # Forcer l'utilisation du CPU (si pas de GPU)
 python entrainer.py --dispositif cpu
@@ -621,6 +618,8 @@ python entrainer.py --sans-mixte
 
 ### Fichiers produits après l'entraînement
 
+Mask R-CNN :
+
 ```
 sorties/
 ├── modeles/
@@ -628,6 +627,33 @@ sorties/
 │   └── dernier_modele.pth    ← Le modèle à la dernière époque (pas forcément le meilleur)
 └── journaux/
     └── historique_entrainement.json  ← Toutes les métriques époque par époque
+```
+
+YOLO-seg :
+
+```text
+sorties_yolo26/
+├── dataset_yolo/                         ← conversion COCO -> YOLO
+│   ├── images/{train,valid,test}/         ← liens ou copies des images source
+│   ├── labels/{train,valid,test}/
+│   └── data.yaml
+├── entrainements/yolo_seg_fissures/
+│   ├── weights/best.pt                    ← meilleur modèle
+│   ├── weights/last.pt                    ← reprise d'entraînement
+│   ├── results.csv
+│   ├── results.png
+│   └── val_batch*_pred.jpg                ← exemples annotés validation
+└── evaluations/yolo_seg_fissures_test/
+    └── val_batch*_pred.jpg                ← exemples annotés test
+```
+
+Analyse après entraînement :
+
+```text
+analyses/
+└── yolo/
+    ├── rapport_analyse.json
+    └── images_annotees/*_analyse.jpg
 ```
 
 ### Sur Google Colab

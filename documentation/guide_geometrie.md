@@ -407,29 +407,32 @@ Toute décision structurelle doit être validée par un ingénieur civil qualifi
 
 ```bash
 python analyser.py \
-    --modele sorties/modeles/meilleur_modele.pth \
+    --modele sorties_yolo26/entrainements/yolo_seg_fissures/weights/best.pt \
     --images chemin/vers/mes/photos/
 ```
 
-### Avec export JSON
+### Avec dossier de sortie personnalisé
 
 ```bash
 python analyser.py \
-    --modele sorties/modeles/meilleur_modele.pth \
+    --modele sorties_yolo26/entrainements/yolo_seg_fissures/weights/best.pt \
     --images chemin/vers/mes/photos/ \
-    --sortie resultats/rapport_analyse.json
+    --dossier-sortie resultats/
 ```
 
 ### Paramètres disponibles
 
 | Paramètre | Valeur par défaut | Explication |
 |---|---|---|
-| `--modele` | *obligatoire* | Chemin vers le fichier .pth du modèle entraîné |
+| `--modele` | *obligatoire* | Chemin vers `best.pt` YOLO-seg ou un `.pth` Mask R-CNN |
+| `--backend` | `yolo` | `yolo` par défaut, `maskrcnn` pour un checkpoint `.pth` |
 | `--images` | *obligatoire* | Dossier contenant les photos à analyser |
-| `--seuil` | 0.4 | Score de confiance minimal pour analyser une fissure. Baisser (ex: 0.3) pour plus de détections. Monter (ex: 0.6) pour plus de précision. |
-| `--taille-image` | 384 | Résolution utilisée lors de l'entraînement (ne pas changer) |
+| `--seuil` | 0.25 YOLO / 0.4 Mask | Score de confiance minimal pour analyser une fissure. |
+| `--taille-image` | 384 YOLO / config Mask | Résolution d'inférence. YOLO exige un multiple de 32. |
 | `--dispositif` | auto | `cuda` pour GPU NVIDIA, `cpu` pour processeur |
-| `--sortie` | *(vide)* | Chemin du fichier JSON de résultats |
+| `--dossier-sortie` | `analyses` | Dossier racine du rapport et des images annotées |
+| `--sortie` | `analyses/<backend>/rapport_analyse.json` | Chemin du fichier JSON si vous voulez le nommer vous-même |
+| `--sans-images` | désactivé | Ne produit que le JSON, sans copies annotées |
 
 ### Formats d'images acceptés
 
@@ -476,20 +479,40 @@ python analyser.py \
 - **Danger** : l'indice composite [0, 1] + indicateur visuel (▓ = danger, ░ = sûr)
 - **Score** : le score de confiance du modèle pour cette détection
 
+### Fichiers produits
+
+Par défaut :
+
+```text
+analyses/
+└── yolo/
+    ├── rapport_analyse.json
+    └── images_annotees/
+        ├── mur_batiment_A_analyse.jpg
+        └── ...
+```
+
+Les images d'origine restent dans le dossier fourni avec `--images`. Le dossier
+`images_annotees/` contient seulement des copies avec contours, boîtes et labels.
+
 ### Le fichier JSON de résultats
 
-Si vous avez utilisé `--sortie`, un fichier JSON est créé. Son contenu :
+Un fichier JSON est créé. Son contenu :
 
 ```json
 {
   "parametres": {
-    "modele": "sorties/modeles/meilleur_modele.pth",
+    "modele": "sorties_yolo26/entrainements/yolo_seg_fissures/weights/best.pt",
+    "backend": "yolo",
     "seuil": 0.4,
-    "taille_image": 384
+    "taille_image": 384,
+    "dossier_images_annotees": "analyses/yolo/images_annotees"
   },
   "resultats": [
     {
       "image": "mur_batiment_A.jpg",
+      "chemin_image_source": "photos_test/mur_batiment_A.jpg",
+      "chemin_image_annotee": "analyses/yolo/images_annotees/mur_batiment_A_analyse.jpg",
       "fissures": [
         {
           "id": 1,

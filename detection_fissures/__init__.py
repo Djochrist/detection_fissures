@@ -1,10 +1,9 @@
-"""
-Paquet d'ancrage pour exécuter le projet depuis une worktree quelconque.
+"""Package racine du projet detection_fissures.
 
-Les modules historiques vivent à la racine du dépôt. On étend donc le chemin
-du paquet pour que `detection_fissures.configuration`, `detection_fissures.modeles`
-et les scripts racine restent importables même si le dossier local ne s'appelle
-pas exactement `detection_fissures`.
+Ce paquet sert de point d'entrée pour les modules répartis dans le dépôt.
+Il étend __path__ pour que les packages top-level comme analyse/, configuration/
+ou entrainement/ soient importables via detection_fissures.analyse,
+detection_fissures.configuration, etc.
 """
 
 from pathlib import Path

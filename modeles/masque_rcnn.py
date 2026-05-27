@@ -21,7 +21,7 @@ Modèles retenus pour ce projet :
      - Plus lent que YOLO (non critique ici, pas de temps-réel)
      - Peut manquer des fissures très fines (< 2px) → géré par FPN
 
-2. YOLOv11-seg ✓
+2. YOLO-seg ✓
    Forces :
      - Temps-réel, léger, facile à déployer
      - Très utile pour comparer vitesse/précision face à Mask R-CNN
@@ -59,6 +59,7 @@ from torchvision.models.detection import (
     MaskRCNN,
     MaskRCNN_ResNet50_FPN_V2_Weights,
 )
+from torchvision.models.detection.anchor_utils import AnchorGenerator
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
 
@@ -108,6 +109,42 @@ def _remplacer_tetes_prediction(modele: MaskRCNN, nombre_classes: int) -> None:
     )
 
 
+def _creer_generateur_ancres_fissures(
+    tailles: tuple[tuple[int, ...], ...],
+    ratios: tuple[tuple[float, ...], ...],
+) -> AnchorGenerator:
+    """Crée des ancres RPN adaptées aux fissures longues et minces."""
+    if len(tailles) != len(ratios):
+        raise ValueError(
+            "tailles_ancres_rpn et ratios_ancres_rpn doivent avoir le même "
+            f"nombre de niveaux FPN, reçu {len(tailles)} et {len(ratios)}."
+        )
+    return AnchorGenerator(sizes=tailles, aspect_ratios=ratios)
+
+
+def _adapter_ancres_rpn(
+    modele: MaskRCNN,
+    tailles: tuple[tuple[int, ...], ...],
+    ratios: tuple[tuple[float, ...], ...],
+) -> None:
+    """
+    Remplace les ancres RPN sans casser les poids préentraînés.
+
+    Le nombre d'ancres par position reste identique aux poids COCO pour garder
+    la tête RPN préentraînée, mais les tailles/ratios ciblent mieux les fissures.
+    """
+    generateur = _creer_generateur_ancres_fissures(tailles, ratios)
+    nb_ancres_nouveau = generateur.num_anchors_per_location()
+    nb_ancres_courant = modele.rpn.anchor_generator.num_anchors_per_location()
+    if nb_ancres_nouveau != nb_ancres_courant:
+        raise ValueError(
+            "La configuration RPN changerait le nombre d'ancres par position "
+            f"({nb_ancres_courant} -> {nb_ancres_nouveau}). "
+            "Gardez le même nombre de ratios pour conserver la tête RPN préentraînée."
+        )
+    modele.rpn.anchor_generator = generateur
+
+
 def construire_modele_masque_rcnn(
     nombre_classes: int = 2,
     architecture: str = ARCHITECTURE_MASKRCNN_RESNET50_FPN_V2,
@@ -116,8 +153,22 @@ def construire_modele_masque_rcnn(
     seuil_score_detection: float = 0.5,
     seuil_iou_nms: float = 0.3,
     detections_max_par_image: int = 100,
-    taille_image_min: int = 384,
-    taille_image_max: int = 384,
+    taille_image_min: int = 512,
+    taille_image_max: int = 512,
+    tailles_ancres_rpn: tuple[tuple[int, ...], ...] = (
+        (8,),
+        (16,),
+        (32,),
+        (64,),
+        (128,),
+    ),
+    ratios_ancres_rpn: tuple[tuple[float, ...], ...] = (
+        (0.25, 1.0, 4.0),
+        (0.25, 1.0, 4.0),
+        (0.25, 1.0, 4.0),
+        (0.25, 1.0, 4.0),
+        (0.25, 1.0, 4.0),
+    ),
 ) -> MaskRCNN:
     """
     Construit et retourne un modèle Mask R-CNN adapté à la détection de fissures.
@@ -149,6 +200,8 @@ def construire_modele_masque_rcnn(
         detections_max_par_image : Limite de détections par image.
         taille_image_min : Taille minimale image d'entrée.
         taille_image_max : Taille maximale image d'entrée.
+        tailles_ancres_rpn : Tailles d'ancres par niveau FPN.
+        ratios_ancres_rpn : Ratios hauteur/largeur par niveau FPN.
 
     Returns:
         Modèle MaskRCNN initialisé avec poids COCO et têtes adaptées.
@@ -176,6 +229,7 @@ def construire_modele_masque_rcnn(
     )
 
     _remplacer_tetes_prediction(modele, nombre_classes)
+    _adapter_ancres_rpn(modele, tailles_ancres_rpn, ratios_ancres_rpn)
     modele.nom_architecture_detection = architecture
 
     return modele
