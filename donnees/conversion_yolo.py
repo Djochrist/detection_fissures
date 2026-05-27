@@ -1,10 +1,20 @@
 """
-Conversion du dataset COCO Roboflow vers le format YOLO segmentation.
+Conversion du dataset COCO (Roboflow) vers le format YOLO segmentation.
 
-Ultralytics YOLO11-seg attend une arborescence images/labels avec un fichier
-texte par image. Chaque ligne de label contient :
-    classe x1 y1 x2 y2 ... xn yn
-où les coordonnées du polygone sont normalisées entre 0 et 1.
+IMAGES ANNOTÉES ET NON ANNOTÉES
+─────────────────────────────────
+Ultralytics YOLO11-seg gère nativement les images sans fissures :
+  - Image annotée  → fichier .txt avec les polygones de segmentation
+  - Image sans fissure → fichier .txt VIDE
+
+Un fichier .txt vide indique à YOLO que l'image ne contient aucune
+instance. YOLO l'utilise comme exemple négatif (fond) pendant l'entraînement,
+ce qui réduit les faux positifs sur les murs sains.
+
+FORMAT YOLO SEGMENTATION (une ligne par instance) :
+    <classe> <x1> <y1> <x2> <y2> ... <xn> <yn>
+    - classe : indice entier (0 = fissure)
+    - coordonnées normalisées dans [0, 1]
 """
 
 from __future__ import annotations
@@ -46,7 +56,7 @@ def _normaliser_polygone(
     largeur: int,
     hauteur: int,
 ) -> list[float]:
-    """Normalise et borne une liste plate de coordonnées COCO."""
+    """Normalise et borne une liste plate de coordonnées COCO dans [0, 1]."""
     coordonnees = []
     for index, valeur in enumerate(points):
         limite = largeur if index % 2 == 0 else hauteur
@@ -110,7 +120,9 @@ def _charger_coco(chemin_annotations: Path) -> dict[str, Any]:
     donnees = json.loads(chemin_annotations.read_text(encoding="utf-8"))
     for cle in ("images", "annotations", "categories"):
         if not isinstance(donnees.get(cle), list):
-            raise ValueError(f"COCO invalide dans {chemin_annotations} : clé '{cle}' absente.")
+            raise ValueError(
+                f"COCO invalide dans {chemin_annotations} : clé '{cle}' absente."
+            )
     return donnees
 
 
@@ -123,11 +135,16 @@ def convertir_dataset_coco_vers_yolo(
     """
     Convertit train/valid/test COCO vers un dataset YOLO11-seg.
 
+    Gestion des images sans fissures :
+        Les images sans annotations COCO reçoivent un fichier .txt VIDE.
+        YOLO les utilisera comme exemples négatifs (fond = pas de fissures).
+        Cela améliore la précision sur les murs sains.
+
     Args:
-        racine_coco: dossier contenant train/, valid/ et test/.
-        racine_yolo: dossier de sortie YOLO.
-        copier_images: si True, copie les images. Sinon crée des symlinks.
-        nom_classe_defaut: nom de classe si COCO ne fournit pas de catégorie.
+        racine_coco        : Dossier contenant train/, valid/ et test/.
+        racine_yolo        : Dossier de sortie YOLO.
+        copier_images      : Si True, copie les images. Sinon crée des symlinks.
+        nom_classe_defaut  : Nom de classe si COCO ne fournit pas de catégorie.
 
     Returns:
         Chemin du fichier data.yaml généré.
@@ -163,6 +180,8 @@ def convertir_dataset_coco_vers_yolo(
             noms_classes.setdefault(index, str(categorie.get("name") or nom_classe_defaut))
 
         images = {int(image["id"]): image for image in donnees["images"]}
+
+        # Regrouper les annotations par image
         annotations_par_image: dict[int, list[dict[str, Any]]] = {
             id_image: [] for id_image in images
         }
@@ -176,12 +195,16 @@ def convertir_dataset_coco_vers_yolo(
         dossier_images_yolo.mkdir(parents=True, exist_ok=True)
         dossier_labels_yolo.mkdir(parents=True, exist_ok=True)
 
+        nb_avec_fissures = 0
+        nb_sans_fissures = 0
+
         for id_image, image in images.items():
             nom_fichier = str(image["file_name"])
             chemin_image_source = dossier_split / nom_fichier
             if not chemin_image_source.is_file():
                 raise FileNotFoundError(f"Image COCO introuvable : {chemin_image_source}")
 
+            # Lien ou copie de l'image
             chemin_image_yolo = dossier_images_yolo / nom_fichier
             _creer_lien_ou_copie(chemin_image_source, chemin_image_yolo, copier_images)
 
@@ -193,6 +216,7 @@ def convertir_dataset_coco_vers_yolo(
                     raise FileNotFoundError(f"Image illisible : {chemin_image_source}")
                 hauteur, largeur = image_cv.shape[:2]
 
+            # Convertir les annotations en lignes YOLO
             lignes = []
             for annotation in annotations_par_image.get(id_image, []):
                 if int(annotation.get("iscrowd", 0)) == 1:
@@ -202,11 +226,24 @@ def convertir_dataset_coco_vers_yolo(
                 for segment in _segments_yolo_annotation(annotation, largeur, hauteur):
                     if len(segment) < 6:
                         continue
-                    valeurs = " ".join(f"{valeur:.6f}" for valeur in segment)
+                    valeurs = " ".join(f"{v:.6f}" for v in segment)
                     lignes.append(f"{classe_yolo} {valeurs}")
 
+            # Écrire le fichier label (vide si aucune fissure → exemple négatif)
             chemin_label = dossier_labels_yolo / f"{Path(nom_fichier).stem}.txt"
             chemin_label.write_text("\n".join(lignes), encoding="utf-8")
+
+            if lignes:
+                nb_avec_fissures += 1
+            else:
+                nb_sans_fissures += 1
+
+        print(
+            f"  [Conversion YOLO] split='{split}' | "
+            f"{len(images)} images | "
+            f"{nb_avec_fissures} avec fissures | "
+            f"{nb_sans_fissures} sans fissures (fond négatif)"
+        )
 
     noms_ordonnes = [noms_classes[index] for index in sorted(noms_classes)]
     if not noms_ordonnes:

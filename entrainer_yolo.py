@@ -1,8 +1,109 @@
 """
-Entraînement YOLOv11-seg pour la détection de fissures.
+Entraînement YOLO11-seg — Détection de fissures structurelles.
 
-Le dataset source reste au format COCO Roboflow. Ce script le convertit en
-YOLO segmentation dans le dossier de sortie, puis lance Ultralytics.
+COMMANDE COMPLÈTE RECOMMANDÉE POUR CE PROJET
+═════════════════════════════════════════════════════════════════════
+
+  python entrainer_yolo.py \\
+    --donnees          dataset/ \\
+    --modele           yolo11s-seg.pt \\
+    --taille-image     384 \\
+    --epoques          150 \\
+    --lot              8 \\
+    --lr               0.001 \\
+    --lrf              0.01 \\
+    --weight-decay     0.0005 \\
+    --patience         50 \\
+    --warmup-epoques   5.0 \\
+    --close-mosaic     30 \\
+    --mask-ratio       1 \\
+    --overlap-mask \\
+    --copy-paste       0.4 \\
+    --mosaic           1.0 \\
+    --mixup            0.0 \\
+    --degrees          45.0 \\
+    --translate        0.1 \\
+    --scale            0.5 \\
+    --fliplr           0.5 \\
+    --flipud           0.0 \\
+    --hsv-h            0.02 \\
+    --hsv-s            0.5 \\
+    --hsv-v            0.4 \\
+    --cos-lr \\
+    --freeze           0 \\
+    --amp \\
+    --workers          2 \\
+    --save-period      10 \\
+    --dispositif       auto \\
+    --nom              yolo11_seg_fissures \\
+    --sorties          sorties_yolo
+
+  Pour reprendre un entraînement interrompu :
+    python entrainer_yolo.py \\
+      --resume sorties_yolo/entrainements/yolo11_seg_fissures/weights/last.pt
+
+JUSTIFICATION DES PARAMÈTRES SPÉCIFIQUES AUX FISSURES
+══════════════════════════════════════════════════════════════════════
+
+  --modele yolo11s-seg.pt
+      Le modèle SMALL (11.2M paramètres) est recommandé pour les fissures.
+      - nano (yolo11n) : trop peu de capacité pour détecter des traits fins
+      - small (yolo11s) : bon équilibre profondeur/vitesse pour 384×384
+      - medium/large : gains marginaux, risque d'overfitting (petit dataset)
+
+  --taille-image 384
+      Identique à la résolution du dataset (export Roboflow 384×384).
+      Ne pas mettre 640 : le modèle serait upscalé → artefacts.
+      384 est un multiple de 32 (exigé par YOLO) ✓
+
+  --mask-ratio 1  ← PARAMÈTRE CRITIQUE POUR LES FISSURES
+      mask_ratio contrôle la résolution des masques de segmentation :
+        mask_ratio=4 (défaut YOLO) → masques 384/4 = 96×96 px
+        mask_ratio=1              → masques 384×384 px (pleine résolution)
+      Les fissures ont souvent 1–3 pixels de large.
+      Avec mask_ratio=4, les contours sont flous et la classification
+      PCA/distance-transform devient imprécise.
+      mask_ratio=1 conserve la qualité des contours au coût de +~30% RAM.
+
+  --copy-paste 0.4
+      Probabilité de "coller" des instances de fissures entre images.
+      Efficace pour les objets rares (fissures < 5% des pixels).
+      0.4 = 40% des lots bénéficient de cet augmentation.
+
+  --degrees 45.0
+      Rotation aléatoire ±45°. Les fissures structurelles peuvent être
+      horizontales, verticales, inclinées ou en diagonale.
+
+  --flipud 0.0
+      PAS de flip vertical. Un flip vertical transformerait une fissure
+      verticale descendant avec la gravité en montant : irréaliste.
+
+  --mixup 0.0
+      Pas de mixup. Le mixup mélange deux images, brouillant les
+      contours fins des fissures et dégradant les masques.
+
+  --mosaic 1.0 + --close-mosaic 30
+      Mosaic actif 100% du temps sauf les 30 dernières époques.
+      La fin sans mosaic permet au modèle de s'adapter aux images réelles
+      (sans collage) et de mieux prédire sur les images de test.
+
+  --patience 50
+      50 époques sans amélioration avant arrêt. Élevé car :
+      - Les fissures sont des objets difficiles (long à converger)
+      - La mosaic et copy-paste introduisent de la variance
+
+  --epoques 150
+      Plus long que le défaut YOLO (100). Justifié par :
+      - Objets rares et petits (lente convergence)
+      - close-mosaic à 30 → 120 époques avec mosaic + 30 sans
+
+  --cos-lr
+      Cosine annealing : LR décroît en cosinus de lr0 à lr0×lrf.
+      Meilleur que le scheduler linéaire pour les petits datasets.
+
+  --hsv-v 0.4 + --hsv-s 0.5
+      Variation de luminosité et saturation importante pour les murs :
+      béton sec vs humide, ombre vs plein soleil.
 """
 
 from __future__ import annotations
@@ -24,205 +125,244 @@ from detection_fissures.configuration.parametres import (
 
 def analyser_arguments() -> argparse.Namespace:
     """Parse les arguments de la ligne de commande."""
-    configuration = ConfigurationGlobale()
-    analyseur = argparse.ArgumentParser(
-        description="Entraînement YOLOv11-seg — Détection de fissures",
+    p = argparse.ArgumentParser(
+        description="Entraînement YOLO11-seg — Détection de fissures structurelles",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    analyseur.add_argument(
-        "--donnees",
-        type=str,
-        default=str(RACINE_PROJET / configuration.chemins.donnees_racine),
-        help="Répertoire COCO racine contenant train/, valid/ et test/",
+    p.add_argument(
+        "--donnees", type=str, default="dataset",
+        help="Répertoire COCO racine (contient train/, valid/, test/)",
     )
-    analyseur.add_argument(
-        "--sorties",
-        type=str,
-        default="sorties_yolo",
+    p.add_argument(
+        "--sorties", type=str, default="sorties_yolo",
         help="Répertoire de sortie YOLO",
     )
-    analyseur.add_argument(
-        "--modele",
-        type=str,
-        default=MODELE_YOLOV11_SEG_DEFAUT,
-        help="Poids YOLOv11 segmentation : yolo11n/s/m/l/x-seg.pt",
+    p.add_argument(
+        "--modele", type=str, default=MODELE_YOLOV11_SEG_DEFAUT,
+        help="Poids YOLO11-seg : yolo11n/s/m/l/x-seg.pt (s recommandé pour fissures)",
     )
-    analyseur.add_argument("--epoques", type=int, default=100)
-    analyseur.add_argument("--lot", type=int, default=8, help="Batch size (-1 = autobatch)")
-    analyseur.add_argument("--taille-image", type=int, default=640, help="imgsz YOLO (multiple de 32)")
-    analyseur.add_argument("--lr", type=float, default=1e-3, help="lr0 : taux d'apprentissage initial")
-    analyseur.add_argument(
-        "--lrf",
-        type=float,
-        default=0.01,
+    p.add_argument(
+        "--taille-image", type=int, default=384,
+        help="Résolution d'entrée (doit correspondre au dataset, multiple de 32)",
+    )
+    p.add_argument(
+        "--epoques", type=int, default=150,
+        help="Nombre d'époques (150 pour fissures : objets difficiles à converger)",
+    )
+    p.add_argument(
+        "--lot", type=int, default=8,
+        help="Batch size. 8=CPU/GPU, -1=autobatch YOLO (GPU requis)",
+    )
+    p.add_argument(
+        "--lr", type=float, default=1e-3,
+        help="Taux d'apprentissage initial (lr0)",
+    )
+    p.add_argument(
+        "--lrf", type=float, default=0.01,
         help="Ratio lr final : lr_final = lr0 × lrf (cosine annealing)",
     )
-    analyseur.add_argument(
-        "--weight-decay",
-        type=float,
-        default=5e-4,
-        help="Décroissance des poids (régularisation L2)",
+    p.add_argument(
+        "--weight-decay", type=float, default=5e-4,
+        help="Décroissance L2 (anti-overfitting datasets < 5000 images)",
     )
-    analyseur.add_argument("--patience", type=int, default=20, help="Patience early stopping")
-    analyseur.add_argument("--workers", type=int, default=2)
-    analyseur.add_argument(
-        "--save-period",
-        type=int,
-        default=5,
-        help="Sauvegarde un checkpoint YOLO toutes les N époques (-1 désactive)",
+    p.add_argument(
+        "--patience", type=int, default=50,
+        help="Patience early stopping (50 = fissures difficiles, convergence lente)",
     )
-    analyseur.add_argument(
-        "--warmup-epoques",
-        type=float,
-        default=3.0,
-        help="Nombre d'époques de warmup LR (linéaire → lr0)",
+    p.add_argument(
+        "--workers", type=int, default=2,
+        help="Processus de chargement des données",
     )
-    analyseur.add_argument(
-        "--close-mosaic",
-        type=int,
-        default=10,
-        help="Désactive l'augmentation mosaic N époques avant la fin (stabilisation)",
+    p.add_argument(
+        "--save-period", type=int, default=10,
+        help="Checkpoint toutes les N époques (-1 = seulement meilleur/dernier)",
     )
-    analyseur.add_argument(
-        "--mask-ratio",
-        type=int,
-        default=4,
-        help="Rapport de sous-échantillonnage des masques (1=pleine résolution, 4=par défaut)",
+    p.add_argument(
+        "--warmup-epoques", type=float, default=5.0,
+        help="Époques d'échauffement LR (linéaire de 0 → lr0)",
     )
-    analyseur.add_argument(
-        "--overlap-mask",
-        action="store_true",
-        default=True,
-        help="Autorise les masques à se chevaucher (recommandé pour les fissures denses)",
+    p.add_argument(
+        "--close-mosaic", type=int, default=30,
+        help=(
+            "Désactive mosaic N époques avant la fin. "
+            "Les dernières époques sans mosaic améliorent la généralisation."
+        ),
     )
-    analyseur.add_argument(
-        "--copy-paste",
-        type=float,
-        default=0.2,
-        help="Probabilité d'augmentation copy-paste (colle des instances dans d'autres images)",
+    p.add_argument(
+        "--mask-ratio", type=int, default=1,
+        help=(
+            "Résolution des masques (1=pleine résolution CRITIQUE pour fissures fines). "
+            "mask_ratio=4 (défaut YOLO) → 96px pour images 384px → fissures floues."
+        ),
     )
-    analyseur.add_argument(
-        "--mosaic",
-        type=float,
-        default=1.0,
-        help="Probabilité de l'augmentation mosaic [0, 1]",
+    p.add_argument(
+        "--overlap-mask", action="store_true", default=True,
+        help="Autorise les masques qui se chevauchent (recommandé pour fissures denses)",
     )
-    analyseur.add_argument(
-        "--mixup",
-        type=float,
-        default=0.0,
-        help="Probabilité de mixup entre deux images [0, 1] (0 = désactivé)",
+    p.add_argument(
+        "--copy-paste", type=float, default=0.4,
+        help="Probabilité copy-paste (0.4 = augmentation pour objets rares comme les fissures)",
     )
-    analyseur.add_argument(
-        "--degrees",
-        type=float,
-        default=10.0,
-        help="Amplitude de rotation aléatoire en degrés (±degrees)",
+    p.add_argument(
+        "--mosaic", type=float, default=1.0,
+        help="Probabilité mosaic [0,1] (1.0 = actif tout le temps sauf close-mosaic)",
     )
-    analyseur.add_argument(
-        "--translate",
-        type=float,
-        default=0.1,
-        help="Amplitude de translation aléatoire (fraction de l'image)",
+    p.add_argument(
+        "--mixup", type=float, default=0.0,
+        help="Probabilité mixup (0 = désactivé : brouille les contours fins des fissures)",
     )
-    analyseur.add_argument(
-        "--scale",
-        type=float,
-        default=0.5,
-        help="Amplitude de mise à l'échelle aléatoire (±scale)",
+    p.add_argument(
+        "--degrees", type=float, default=45.0,
+        help="Rotation aléatoire ±degrés (45° car fissures à tous les angles structurels)",
     )
-    analyseur.add_argument(
-        "--fliplr",
-        type=float,
-        default=0.5,
-        help="Probabilité de flip horizontal",
+    p.add_argument(
+        "--translate", type=float, default=0.1,
+        help="Translation aléatoire (fraction de l'image)",
     )
-    analyseur.add_argument(
-        "--flipud",
-        type=float,
-        default=0.0,
-        help="Probabilité de flip vertical",
+    p.add_argument(
+        "--scale", type=float, default=0.5,
+        help="Mise à l'échelle aléatoire ±scale",
     )
-    analyseur.add_argument(
-        "--hsv-h",
-        type=float,
-        default=0.015,
-        help="Variation de teinte HSV (fraction)",
+    p.add_argument(
+        "--fliplr", type=float, default=0.5,
+        help="Probabilité flip horizontal (0.5 = symétrie des murs OK)",
     )
-    analyseur.add_argument(
-        "--hsv-s",
-        type=float,
-        default=0.7,
-        help="Variation de saturation HSV (fraction)",
+    p.add_argument(
+        "--flipud", type=float, default=0.0,
+        help="Probabilité flip vertical (0 = non : inverserait la direction des fissures de gravité)",
     )
-    analyseur.add_argument(
-        "--hsv-v",
-        type=float,
-        default=0.4,
-        help="Variation de luminosité HSV (fraction)",
+    p.add_argument(
+        "--hsv-h", type=float, default=0.02,
+        help="Variation de teinte HSV (béton = palette restreinte)",
     )
-    analyseur.add_argument(
-        "--cos-lr",
-        action="store_true",
-        default=True,
-        help="Utiliser un scheduler cosine annealing (recommandé)",
+    p.add_argument(
+        "--hsv-s", type=float, default=0.5,
+        help="Variation saturation HSV (mur sec vs humide)",
     )
-    analyseur.add_argument(
-        "--freeze",
-        type=int,
-        default=0,
-        help="Nombre de couches YOLO à geler depuis le début du backbone (0 = aucune)",
+    p.add_argument(
+        "--hsv-v", type=float, default=0.4,
+        help="Variation luminosité HSV (ombre vs plein soleil sur murs)",
     )
-    analyseur.add_argument(
-        "--amp",
-        action="store_true",
-        default=True,
-        help="Activer la précision mixte automatique AMP (accélère l'entraînement GPU)",
+    p.add_argument(
+        "--cos-lr", action="store_true", default=True,
+        help="Cosine annealing LR (meilleur que linéaire pour petit dataset)",
     )
-    analyseur.add_argument(
-        "--dispositif",
-        type=str,
-        default="auto",
+    p.add_argument(
+        "--freeze", type=int, default=0,
+        help=(
+            "Couches backbone à geler (0 = tout entraînable). "
+            "Augmenter si overfitting sévère (ex: --freeze 10)."
+        ),
+    )
+    p.add_argument(
+        "--amp", action="store_true", default=True,
+        help="Précision mixte AMP (GPU uniquement, ignoré sur CPU)",
+    )
+    p.add_argument(
+        "--dispositif", type=str, default="auto",
         choices=["auto", "cuda", "mps", "cpu"],
         help="Dispositif de calcul",
     )
-    analyseur.add_argument(
-        "--nom",
-        type=str,
-        default="yolo11_seg_fissures",
-        help="Nom de l'expérience Ultralytics",
+    p.add_argument(
+        "--nom", type=str, default="yolo11_seg_fissures",
+        help="Nom de l'expérience (dossier de sortie Ultralytics)",
     )
-    analyseur.add_argument(
-        "--copier-images",
-        action="store_true",
-        help="Copie les images au lieu de créer des liens symboliques",
+    p.add_argument(
+        "--copier-images", action="store_true",
+        help="Copier les images au lieu de créer des symlinks",
     )
-    analyseur.add_argument(
-        "--convertir-seulement",
-        action="store_true",
-        help="Convertit le dataset COCO vers YOLO sans entraîner",
+    p.add_argument(
+        "--convertir-seulement", action="store_true",
+        help="Convertir COCO → YOLO sans entraîner",
     )
-    analyseur.add_argument(
-        "--exist-ok",
-        action="store_true",
-        help="Autorise Ultralytics à réutiliser un dossier d'expérience existant",
+    p.add_argument(
+        "--exist-ok", action="store_true",
+        help="Réutiliser un dossier d'expérience existant",
     )
-    analyseur.add_argument(
-        "--resume",
-        type=str,
-        default=None,
-        help="Reprend un entraînement YOLO depuis un checkpoint last.pt",
+    p.add_argument(
+        "--resume", type=str, default=None,
+        help="Reprendre depuis un checkpoint last.pt. Ex : sorties_yolo/.../weights/last.pt",
     )
-    analyseur.add_argument(
-        "--silencieux",
-        action="store_true",
-        help="Réduit les journaux YOLO au minimum",
+    p.add_argument(
+        "--silencieux", action="store_true",
+        help="Réduire les logs YOLO au minimum",
     )
-    return analyseur.parse_args()
+    return p.parse_args()
+
+
+def generer_commande_yolo(args: argparse.Namespace) -> str:
+    """Génère la commande complète avec tous les paramètres utilisés."""
+    lignes = [
+        "python entrainer_yolo.py \\",
+        f"  --donnees          {args.donnees} \\",
+        f"  --modele           {args.modele} \\",
+        f"  --taille-image     {args.taille_image} \\",
+        f"  --epoques          {args.epoques} \\",
+        f"  --lot              {args.lot} \\",
+        f"  --lr               {args.lr} \\",
+        f"  --lrf              {args.lrf} \\",
+        f"  --weight-decay     {args.weight_decay} \\",
+        f"  --patience         {args.patience} \\",
+        f"  --warmup-epoques   {args.warmup_epoques} \\",
+        f"  --close-mosaic     {args.close_mosaic} \\",
+        f"  --mask-ratio       {args.mask_ratio} \\",
+        f"  --overlap-mask \\" if args.overlap_mask else "  # --overlap-mask désactivé \\",
+        f"  --copy-paste       {args.copy_paste} \\",
+        f"  --mosaic           {args.mosaic} \\",
+        f"  --mixup            {args.mixup} \\",
+        f"  --degrees          {args.degrees} \\",
+        f"  --translate        {args.translate} \\",
+        f"  --scale            {args.scale} \\",
+        f"  --fliplr           {args.fliplr} \\",
+        f"  --flipud           {args.flipud} \\",
+        f"  --hsv-h            {args.hsv_h} \\",
+        f"  --hsv-s            {args.hsv_s} \\",
+        f"  --hsv-v            {args.hsv_v} \\",
+        f"  --cos-lr \\" if args.cos_lr else "  # --cos-lr désactivé \\",
+        f"  --freeze           {args.freeze} \\",
+        f"  --amp \\" if args.amp else "  # --amp désactivé \\",
+        f"  --workers          {args.workers} \\",
+        f"  --save-period      {args.save_period} \\",
+        f"  --dispositif       {args.dispositif} \\",
+        f"  --nom              {args.nom} \\",
+        f"  --sorties          {args.sorties}",
+    ]
+    if args.resume:
+        lignes[-1] += " \\"
+        lignes.append(f"  --resume           {args.resume}")
+    return "\n".join(lignes)
+
+
+def afficher_commande_complete(args: argparse.Namespace, titre: str = "COMMANDE UTILISÉE") -> None:
+    """Affiche la commande complète avec tous les paramètres."""
+    commande = generer_commande_yolo(args)
+    print("\n" + "═" * 68)
+    print(f"  {titre}")
+    print("═" * 68)
+    print()
+    for ligne in commande.splitlines():
+        print(f"  {ligne}")
+    print()
+    print("═" * 68 + "\n")
+
+
+def verifier_modele_yolov11_seg(chemin_modele: str) -> None:
+    """Vérifie que le modèle est bien un YOLO11-seg valide."""
+    nom = Path(chemin_modele).name
+    if nom in MODELES_YOLOV11_SEG_OFFICIELS:
+        return
+    if nom.startswith("yolo11") and "-seg" in Path(nom).stem:
+        return
+    choix = ", ".join(MODELES_YOLOV11_SEG_OFFICIELS)
+    raise ValueError(
+        f"Modèle non autorisé : {chemin_modele}\n"
+        f"Acceptés : {choix}\n"
+        "Ou un checkpoint .pt entraîné par ce projet (last.pt, best.pt)."
+    )
 
 
 def _device_ultralytics(dispositif: str) -> str | None:
-    """Traduit le nom de dispositif du projet vers Ultralytics."""
+    """Traduit le dispositif vers le format Ultralytics."""
     if dispositif == "auto":
         return None
     if dispositif == "cuda":
@@ -230,229 +370,238 @@ def _device_ultralytics(dispositif: str) -> str | None:
     return dispositif
 
 
-def verifier_modele_yolov11_seg(chemin_modele: str) -> None:
-    """Bloque les poids YOLO qui ne sont pas des modèles YOLOv11-seg."""
-    nom_modele = Path(chemin_modele).name
-    if nom_modele in MODELES_YOLOV11_SEG_OFFICIELS:
-        return
-
-    if nom_modele.startswith("yolo11") and "-seg" in Path(nom_modele).stem:
-        return
-
-    choix = ", ".join(MODELES_YOLOV11_SEG_OFFICIELS)
-    raise ValueError(
-        f"Modèle YOLO non autorisé : {chemin_modele}. "
-        f"Ce projet accepte uniquement YOLOv11-seg ({choix}) "
-        "ou un checkpoint YOLOv11-seg nommé explicitement."
-    )
-
-
 def _compter_lignes_labels(dossier_labels: Path) -> tuple[int, int]:
-    """Retourne (images annotees, instances) pour un dossier labels YOLO."""
+    """Retourne (nb_avec_fissures, nb_instances) pour un dossier labels."""
     fichiers = sorted(dossier_labels.glob("*.txt"))
-    images_annotees = 0
-    instances = 0
-    for fichier in fichiers:
-        lignes = [
-            ligne
-            for ligne in fichier.read_text(encoding="utf-8").splitlines()
-            if ligne.strip()
-        ]
+    avec, instances = 0, 0
+    for f in fichiers:
+        lignes = [l for l in f.read_text(encoding="utf-8").splitlines() if l.strip()]
         if lignes:
-            images_annotees += 1
+            avec += 1
             instances += len(lignes)
-    return images_annotees, instances
+    return avec, instances
 
 
 def afficher_resume_dataset_yolo(racine_dataset_yolo: Path) -> None:
-    """Affiche un résumé compact du dataset YOLO converti."""
-    print("\n" + "═" * 55)
+    """Affiche un résumé du dataset converti avec statistiques."""
+    print("\n" + "═" * 68)
     print("  DATASET YOLO-SEG CONVERTI")
-    print("═" * 55)
+    print("═" * 68)
+    print(
+        f"  {'Split':<6} {'Total':>7} {'Avec fissures':>14} "
+        f"{'Murs sains':>11} {'Instances':>10}"
+    )
+    print(f"  {'-'*6}-+-{'-'*7}-+-{'-'*14}-+-{'-'*11}-+-{'-'*10}")
     for split in ("train", "valid", "test"):
         dossier_images = racine_dataset_yolo / "images" / split
         dossier_labels = racine_dataset_yolo / "labels" / split
-        nb_images = sum(1 for chemin in dossier_images.iterdir() if chemin.is_file() or chemin.is_symlink())
-        images_annotees, instances = _compter_lignes_labels(dossier_labels)
+        if not dossier_images.exists():
+            continue
+        nb_images = sum(1 for p in dossier_images.iterdir() if p.is_file() or p.is_symlink())
+        nb_avec, instances = _compter_lignes_labels(dossier_labels)
         print(
-            f"  {split:<5} : {nb_images:5d} image(s) | "
-            f"{images_annotees:5d} avec fissure(s) | {instances:6d} instance(s)"
+            f"  {split:<6} {nb_images:>7} {nb_avec:>14} "
+            f"{nb_images - nb_avec:>11} {instances:>10}"
         )
-    print("═" * 55 + "\n")
+    print("═" * 68)
+    print(
+        "  Murs sains → label .txt vide → exemples négatifs YOLO.\n"
+        "  mask_ratio=1 → masques pleine résolution pour fissures fines."
+    )
+    print("═" * 68 + "\n")
 
 
-def _valeur_metrique_yolo(resultats: Any, fragments_cles: tuple[str, ...]) -> float | None:
-    """Récupère une métrique Ultralytics depuis results_dict si disponible."""
-    dictionnaire = getattr(resultats, "results_dict", None)
-    if not isinstance(dictionnaire, dict):
+def _valeur_metrique_yolo(resultats: Any, fragments: tuple[str, ...]) -> float | None:
+    """Récupère une métrique YOLO depuis results_dict."""
+    d = getattr(resultats, "results_dict", None)
+    if not isinstance(d, dict):
         return None
-
-    for cle, valeur in dictionnaire.items():
+    for cle, val in d.items():
         cle_min = str(cle).lower()
-        if all(fragment.lower() in cle_min for fragment in fragments_cles):
+        if all(f.lower() in cle_min for f in fragments):
             try:
-                return float(valeur)
+                return float(val)
             except (TypeError, ValueError):
                 return None
     return None
 
 
-def _calculer_f1(precision: float | None, rappel: float | None) -> float | None:
-    """Calcule le F1 score depuis précision et rappel si les deux existent."""
-    if precision is None or rappel is None:
+def _f1(p: float | None, r: float | None) -> float | None:
+    """Calcule le F1 depuis précision et rappel."""
+    if p is None or r is None:
         return None
-    denominateur = precision + rappel
-    if denominateur <= 0:
-        return 0.0
-    return 2.0 * precision * rappel / denominateur
+    d = p + r
+    return 0.0 if d <= 0 else 2.0 * p * r / d
 
 
 def afficher_metriques_yolo(resultats: Any, titre: str) -> None:
-    """Affiche les métriques YOLO principales quand Ultralytics les expose."""
-    precision_masque = _valeur_metrique_yolo(resultats, ("precision", "(m)"))
-    rappel_masque = _valeur_metrique_yolo(resultats, ("recall", "(m)"))
-    precision_boite = _valeur_metrique_yolo(resultats, ("precision", "(b)"))
-    rappel_boite = _valeur_metrique_yolo(resultats, ("recall", "(b)"))
+    """Affiche et interprète les métriques YOLO pour la détection de fissures."""
+    pm = _valeur_metrique_yolo(resultats, ("precision", "(m)"))
+    rm = _valeur_metrique_yolo(resultats, ("recall", "(m)"))
+    pb = _valeur_metrique_yolo(resultats, ("precision", "(b)"))
+    rb = _valeur_metrique_yolo(resultats, ("recall", "(b)"))
 
     valeurs = [
-        ("mAP@0.5 masque", _valeur_metrique_yolo(resultats, ("map50", "(m)"))),
+        ("mAP@0.5 masque",      _valeur_metrique_yolo(resultats, ("map50", "(m)"))),
         ("mAP@0.5:0.95 masque", _valeur_metrique_yolo(resultats, ("map50-95", "(m)"))),
-        ("Précision masque", precision_masque),
-        ("Rappel masque", rappel_masque),
-        ("F1 score masque", _calculer_f1(precision_masque, rappel_masque)),
-        ("mAP@0.5 boîte", _valeur_metrique_yolo(resultats, ("map50", "(b)"))),
-        ("mAP@0.5:0.95 boîte", _valeur_metrique_yolo(resultats, ("map50-95", "(b)"))),
-        ("Précision boîte", precision_boite),
-        ("Rappel boîte", rappel_boite),
-        ("F1 score boîte", _calculer_f1(precision_boite, rappel_boite)),
+        ("Précision masque",    pm),
+        ("Rappel masque",       rm),
+        ("F1 masque",           _f1(pm, rm)),
+        ("mAP@0.5 boîte",       _valeur_metrique_yolo(resultats, ("map50", "(b)"))),
+        ("Précision boîte",     pb),
+        ("Rappel boîte",        rb),
+        ("F1 boîte",            _f1(pb, rb)),
     ]
-    valeurs = [(label, valeur) for label, valeur in valeurs if valeur is not None]
-
+    valeurs = [(l, v) for l, v in valeurs if v is not None]
     if not valeurs:
-        print(f"[YOLO] {titre} : métriques détaillées non exposées par cette version.")
+        print(f"[Métriques] {titre} : non exposées par cette version Ultralytics.")
         return
 
-    print("\n" + "═" * 60)
+    print("\n" + "═" * 68)
     print(f"  {titre}")
-    print("═" * 60)
+    print("═" * 68)
     for label, valeur in valeurs:
-        barre = "█" * int(max(0.0, min(1.0, valeur)) * 20)
+        barre = "█" * int(max(0.0, min(1.0, valeur)) * 25)
         print(f"  {label:<26} : {valeur:.4f}  {barre}")
 
-    print("═" * 60)
     print()
-    print("  SIGNIFICATION DES MÉTRIQUES YOLO-SEG")
-    print(f"  {'─'*56}")
-    print("  mAP@0.5 masque      Métrique PRINCIPALE. Segmentation considérée")
-    print("                      correcte si IoU pixel ≥ 50 %. Compare directement")
-    print("                      avec d'autres travaux sur la détection de fissures.")
-    print("                      Cible : > 0.55  │  Bon : > 0.70  │  Excellent : > 0.80")
-    print()
-    print("  mAP@0.5:0.95 masque Rigueur COCO : moyenne sur IoU 50→95 %. Pénalise")
-    print("                      les masques dont le contour est imprécis.")
-    print("                      Écart mAP50 - mAP50:95 > 0.20 → bords de masque flous.")
-    print()
-    print("  Précision masque    Sur toutes les fissures prédites, combien")
-    print("                      correspondent réellement à une fissure annotée.")
-    print("                      Faible → trop de fausses alarmes.")
-    print()
-    print("  Rappel masque       Sur toutes les fissures réelles, combien")
-    print("                      ont été détectées. Faible → fissures manquées.")
-    print("                      Priorité RAPPEL > précision (inspection sécurité).")
-    print()
-    print("  F1 score masque     Bilan unique Précision/Rappel (moyenne harmonique).")
-    print("                      Cible : > 0.60  │  Bon : > 0.70  │  Excellent : > 0.80")
-    print()
-    print("  mAP@0.5 boîte       Même définition mais sur les boîtes englobantes.")
-    print("                      Utile pour diagnostiquer : si boîte >> masque,")
-    print("                      le RPN trouve les zones mais les masques sont imprécis.")
-    print()
-    print("  mAP@0.5:0.95 boîte  Métrique boîte stricte. Doit rester proche de")
-    print("                      mAP@0.5:0.95 masque (< 0.10 d'écart idéalement).")
-    print()
-    print("  INTERPRÉTATION RAPIDE")
-    print(f"  {'─'*56}")
+    print("  INTERPRÉTATION POUR LA DÉTECTION DE FISSURES")
+    print(f"  {'─'*64}")
+    print("  PRIORITÉ → Rappel masque : fissure manquée = danger structurel.")
 
-    map50_masque  = next((v for l, v in valeurs if "masque" in l.lower() and "0.5 " in l), None)
-    rappel_masque = next((v for l, v in valeurs if "rappel masque" in l.lower()), None)
-    f1_masque     = next((v for l, v in valeurs if "f1" in l.lower() and "masque" in l.lower()), None)
+    rappel_m = next((v for l, v in valeurs if "rappel masque" in l.lower()), 0.0)
+    map50_m  = next((v for l, v in valeurs if "map@0.5 masque" in l.lower() or "map50 masque" in l.lower()), 0.0)
+    f1_m     = next((v for l, v in valeurs if "f1 masque" in l.lower()), 0.0)
 
-    map50_m  = map50_masque  or 0.0
-    f1_m     = f1_masque     or 0.0
-    rappel_m = rappel_masque or 0.0
+    if rappel_m < 0.60 and map50_m > 0.40:
+        print()
+        print("  ⚠  Rappel faible → fissures manquées probables.")
+        print("     → Réduire le seuil : python analyser.py --seuil 0.10")
 
+    print()
     if map50_m >= 0.70 and f1_m >= 0.70:
-        niveau = "EXCELLENT — modèle prêt pour inspection structurelle"
-        icone  = "✓✓"
+        print("  ✓✓ EXCELLENT — modèle fiable pour inspection structurelle")
     elif map50_m >= 0.50 and f1_m >= 0.60:
-        niveau = "BON — résultats exploitables, affinage possible"
-        icone  = "✓"
+        print("  ✓  BON — résultats exploitables, affinage possible")
     elif map50_m >= 0.35:
-        niveau = "ACCEPTABLE — continuer l'entraînement ou augmenter le dataset"
-        icone  = "~"
+        print("  ~  ACCEPTABLE — continuer l'entraînement ou augmenter le dataset")
     else:
-        niveau = "INSUFFISANT — vérifier données, lr, augmentation, annotations"
-        icone  = "✗"
+        print("  ✗  INSUFFISANT — vérifier données, augmentations, annotations")
 
-    if rappel_m < 0.50 and map50_m > 0.45:
-        print("  ⚠  Rappel faible : des fissures sont manquées.")
-        print("     → Abaisser le seuil de confiance dans l'inférence.")
-        print("     → Vérifier que les annotations couvrent toutes les fissures visibles.")
-
-    print(f"  {icone}  Niveau global : {niveau}")
-    print("═" * 60 + "\n")
+    print("═" * 68 + "\n")
 
 
-def installer_journaux_yolo(modele: Any, actif: bool = True) -> None:
-    """Ajoute un callback léger pour éviter les entraînements YOLO muets."""
+def installer_callback_epoque(modele: Any, actif: bool = True) -> None:
+    """Affiche la progression époque par époque."""
     if not actif or not hasattr(modele, "add_callback"):
         return
 
-    def journaliser_epoque(trainer: Any) -> None:
-        epoque = int(getattr(trainer, "epoch", -1)) + 1
-        args = getattr(trainer, "args", None)
-        total = getattr(args, "epochs", "?")
-        metriques = getattr(trainer, "metrics", None)
-        elements = [f"[YOLO] Époque {epoque}/{total}"]
-
-        if isinstance(metriques, dict) and metriques:
-            for cle, valeur in metriques.items():
-                cle_min = str(cle).lower()
-                if "map50" in cle_min or "precision" in cle_min or "recall" in cle_min:
+    def journaliser(trainer: Any) -> None:
+        epoque  = int(getattr(trainer, "epoch", -1)) + 1
+        total   = getattr(getattr(trainer, "args", None), "epochs", "?")
+        elems   = [f"[YOLO] Époque {epoque}/{total}"]
+        metr    = getattr(trainer, "metrics", None)
+        if isinstance(metr, dict):
+            for k, v in metr.items():
+                km = str(k).lower()
+                if "map50" in km or "precision" in km or "recall" in km:
                     try:
-                        elements.append(f"{cle}={float(valeur):.4f}")
+                        elems.append(f"{k}={float(v):.4f}")
                     except (TypeError, ValueError):
                         pass
-
-        loss_items = getattr(trainer, "loss_items", None)
-        if loss_items is not None:
+        loss = getattr(trainer, "loss_items", None)
+        if loss is not None:
             try:
-                valeurs = [float(valeur) for valeur in loss_items]
-                elements.append("loss=" + ",".join(f"{valeur:.4f}" for valeur in valeurs))
+                elems.append("loss=" + ",".join(f"{float(v):.4f}" for v in loss))
             except (TypeError, ValueError):
                 pass
-
-        print(" | ".join(elements), flush=True)
+        print(" | ".join(elems), flush=True)
 
     try:
-        modele.add_callback("on_fit_epoch_end", journaliser_epoque)
+        modele.add_callback("on_fit_epoch_end", journaliser)
     except Exception as exc:
-        print(
-            f"[YOLO] Callback de journalisation non installé "
-            f"({type(exc).__name__}: {exc}). Ultralytics gardera ses logs natifs."
-        )
+        print(f"[YOLO] Callback non installé ({type(exc).__name__}). Logs natifs conservés.")
+
+
+def afficher_commandes_analyse(racine_sorties: Path, nom: str, args: argparse.Namespace) -> None:
+    """Affiche les commandes exactes pour analyser les images après l'entraînement."""
+    best = str(racine_sorties / "entrainements" / nom / "weights" / "best.pt")
+    last = str(racine_sorties / "entrainements" / nom / "weights" / "last.pt")
+    test = str(Path(args.donnees) / "test")
+
+    print("\n" + "═" * 68)
+    print("  ENTRAÎNEMENT YOLO11-SEG TERMINÉ")
+    print("═" * 68)
+    print()
+    print("  Modèles sauvegardés :")
+    print(f"    Meilleur : {best}")
+    print(f"    Dernier  : {last}")
+    print()
+    print("  ┌─── COMMANDES D'ANALYSE ───────────────────────────────────┐")
+    print("  │")
+    print("  │  Analyser le jeu de test :")
+    print(f"  │    python analyser.py \\")
+    print(f"  │      --modele   {best} \\")
+    print(f"  │      --backend  yolo \\")
+    print(f"  │      --images   {test} \\")
+    print(f"  │      --seuil    0.25")
+    print("  │")
+    print("  │  Analyser un dossier quelconque :")
+    print(f"  │    python analyser.py \\")
+    print(f"  │      --modele   {best} \\")
+    print(f"  │      --backend  yolo \\")
+    print(f"  │      --images   /chemin/vers/images/ \\")
+    print(f"  │      --sortie   resultats_yolo.json")
+    print("  │")
+    print("  │  Seuil plus bas (éviter les fissures manquées) :")
+    print(f"  │    python analyser.py \\")
+    print(f"  │      --modele   {best} \\")
+    print(f"  │      --backend  yolo \\")
+    print(f"  │      --images   {test} \\")
+    print(f"  │      --seuil    0.10")
+    print("  │")
+    print("  │  Reprendre l'entraînement :")
+    print(f"  │    python entrainer_yolo.py --resume {last}")
+    print("  │")
+    print("  └───────────────────────────────────────────────────────────┘")
+    print()
+    print("  Classification de chaque fissure détectée :")
+    print("    Orientation  : horizontale / verticale / inclinée (PCA)")
+    print("    Localisation : superficielle / profonde / transversale")
+    print("    Danger [0→1] : 0.0 faible | 0.5 modéré | 1.0 critique")
+    print("═" * 68 + "\n")
 
 
 def main() -> None:
-    """Convertit le dataset puis entraîne YOLO11-seg."""
+    """
+    Point d'entrée de l'entraînement YOLO11-seg.
+
+    Étapes :
+    1. Conversion automatique COCO → YOLO-seg
+    2. Affichage de la commande complète utilisée
+    3. Configuration et affichage des paramètres
+    4. Entraînement avec transfer learning et augmentations adaptées aux fissures
+    5. Évaluation validation (fin d'entraînement) + test
+    6. Affichage des métriques interprétées
+    7. Affichage des commandes d'analyse
+    """
     args = analyser_arguments()
-    verifier_modele_yolov11_seg(args.modele)
-    racine_sorties = Path(args.sorties).expanduser().resolve()
-    racine_dataset_yolo = racine_sorties / "dataset_yolo"
+
+    if args.resume is None:
+        verifier_modele_yolov11_seg(args.modele)
+
+    racine_sorties       = Path(args.sorties).expanduser().resolve()
+    racine_dataset_yolo  = racine_sorties / "dataset_yolo"
+
     checkpoint_resume = Path(args.resume).expanduser().resolve() if args.resume else None
     if checkpoint_resume is not None and not checkpoint_resume.is_file():
-        raise FileNotFoundError(f"Checkpoint YOLO de reprise introuvable : {checkpoint_resume}")
+        raise FileNotFoundError(
+            f"Checkpoint introuvable : {checkpoint_resume}\n"
+            "Lancez sans --resume pour un entraînement neuf."
+        )
 
+    # ── 1. Conversion COCO → YOLO ─────────────────────────────────────────
+    print("\n[Conversion] COCO → YOLO-seg en cours...")
     from detection_fissures.donnees.conversion_yolo import convertir_dataset_coco_vers_yolo
 
     chemin_yaml = convertir_dataset_coco_vers_yolo(
@@ -460,49 +609,57 @@ def main() -> None:
         racine_yolo=racine_dataset_yolo,
         copier_images=args.copier_images,
     )
-    print(f"[YOLO] Dataset converti : {chemin_yaml}")
+    print(f"[Conversion] Terminée → {chemin_yaml}")
     afficher_resume_dataset_yolo(racine_dataset_yolo)
 
     if args.convertir_seulement:
-        print("[YOLO] Conversion terminée, entraînement ignoré.")
+        print("[Conversion] Mode --convertir-seulement : entraînement ignoré.")
         return
 
+    # ── 2. Commande complète ───────────────────────────────────────────────
+    afficher_commande_complete(args, titre="COMMANDE COMPLÈTE UTILISÉE")
+
+    # ── 3. Import YOLO ────────────────────────────────────────────────────
     try:
         from ultralytics import YOLO
     except ImportError as exc:
         raise ImportError(
-            "Le paquet 'ultralytics' est requis pour YOLOv11. "
+            "Le paquet 'ultralytics' est requis.\n"
             "Installez-le avec : pip install -U ultralytics"
         ) from exc
 
-    print("\n" + "═" * 60)
-    print("  CONFIGURATION YOLOV11-SEG")
-    print("═" * 60)
-    print(f"  Modèle         : {args.modele}")
-    print(f"  Époques        : {args.epoques}")
-    print(f"  Batch          : {args.lot}")
-    print(f"  Image          : {args.taille_image}px")
-    print(f"  LR initial     : {args.lr}  →  LR final : {args.lr * args.lrf:.2e}")
-    print(f"  Weight decay   : {args.weight_decay}")
-    print(f"  Warmup         : {args.warmup_epoques} époques")
-    print(f"  Close mosaic   : {args.close_mosaic} dernières époques")
-    print(f"  Patience ES    : {args.patience}")
-    print(f"  Copy-paste     : {args.copy_paste}")
-    print(f"  Mosaic         : {args.mosaic}")
-    print(f"  Mask ratio     : {args.mask_ratio}")
-    print(f"  Overlap mask   : {args.overlap_mask}")
-    print(f"  Cosine LR      : {args.cos_lr}")
-    print(f"  AMP            : {args.amp}")
-    print(f"  Workers        : {args.workers}")
-    print(f"  Dispositif     : {args.dispositif}")
-    if args.freeze > 0:
-        print(f"  Freeze         : {args.freeze} couches backbone gelées")
+    # ── 4. Configuration affichée ─────────────────────────────────────────
+    print("═" * 68)
+    print("  CONFIGURATION YOLO11-SEG — FISSURES STRUCTURELLES")
+    print("═" * 68)
+    print(f"  Modèle de départ    : {args.modele}")
+    print(f"  Époques             : {args.epoques}")
+    print(f"  Batch size          : {args.lot}")
+    print(f"  Résolution          : {args.taille_image}px (identique au dataset)")
+    print(f"  LR initial → final  : {args.lr}  →  {args.lr * args.lrf:.2e}")
+    print(f"  Weight decay        : {args.weight_decay}")
+    print(f"  Warmup              : {args.warmup_epoques} époques")
+    print(f"  Close mosaic        : {args.close_mosaic} dernières époques sans mosaic")
+    print(f"  Patience ES         : {args.patience}")
+    print(f"  mask_ratio          : {args.mask_ratio} (1 = pleine résolution pour fissures fines)")
+    print(f"  Overlap mask        : {args.overlap_mask}")
+    print(f"  Copy-paste          : {args.copy_paste} (augmentation objet rare)")
+    print(f"  Mosaic              : {args.mosaic}")
+    print(f"  Mixup               : {args.mixup} (désactivé : brouille contours)")
+    print(f"  Rotation            : ±{args.degrees}° (fissures à tous angles)")
+    print(f"  Flip horizontal     : {args.fliplr}")
+    print(f"  Flip vertical       : {args.flipud} (désactivé : contexte gravitationnel)")
+    print(f"  Cosine LR           : {args.cos_lr}")
+    print(f"  AMP                 : {args.amp}")
+    print(f"  Workers             : {args.workers}")
     if checkpoint_resume is not None:
-        print(f"  Reprise        : {checkpoint_resume}")
-    print("═" * 60 + "\n")
+        print(f"  Reprise checkpoint  : {checkpoint_resume}")
+    print("═" * 68 + "\n")
 
+    # ── 5. Entraînement ───────────────────────────────────────────────────
     modele = YOLO(str(checkpoint_resume) if checkpoint_resume is not None else args.modele)
-    installer_journaux_yolo(modele, actif=not args.silencieux)
+    installer_callback_epoque(modele, actif=not args.silencieux)
+
     resultats = modele.train(
         data=str(chemin_yaml),
         task="segment",
@@ -543,9 +700,11 @@ def main() -> None:
         save_period=args.save_period,
     )
 
-    print(f"[YOLO] Entraînement terminé : {resultats.save_dir}")
-    afficher_metriques_yolo(resultats, "MÉTRIQUES YOLO — VALIDATION")
+    print(f"\n[YOLO] Entraînement terminé. Dossier : {resultats.save_dir}")
+    afficher_metriques_yolo(resultats, "MÉTRIQUES VALIDATION — FIN D'ENTRAÎNEMENT")
 
+    # ── 6. Évaluation test ────────────────────────────────────────────────
+    print("[Évaluation] Évaluation finale sur le jeu de test...")
     metriques_test = modele.val(
         data=str(chemin_yaml),
         split="test",
@@ -558,8 +717,11 @@ def main() -> None:
         verbose=not args.silencieux,
         plots=True,
     )
-    print(f"[YOLO] Évaluation test terminée : {metriques_test.save_dir}")
-    afficher_metriques_yolo(metriques_test, "MÉTRIQUES YOLO — TEST")
+    afficher_metriques_yolo(metriques_test, "MÉTRIQUES TEST — ÉVALUATION FINALE")
+
+    # ── 7. Commande complète + analyse ────────────────────────────────────
+    afficher_commande_complete(args, titre="RAPPEL — COMMANDE UTILISÉE POUR CET ENTRAÎNEMENT")
+    afficher_commandes_analyse(racine_sorties, args.nom, args)
 
 
 if __name__ == "__main__":

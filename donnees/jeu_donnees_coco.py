@@ -1,12 +1,24 @@
 """
-Module du jeu de données COCO pour la détection de fissures.
+Jeu de données COCO pour la segmentation d'instance de fissures.
 
 Charge les images et annotations au format COCO (Roboflow export).
-Aucune augmentation n'est appliquée — le dataset est déjà prétraité.
+
+IMAGES SANS ANNOTATIONS (murs sans fissures)
+─────────────────────────────────────────────
+Le dataset peut contenir deux types d'images :
+  - Annotées   : images avec fissures → segmentation d'instance
+  - Non annotées : images de murs SANS fissures → exemples négatifs
+
+Les deux sont incluses dans l'entraînement. Mask R-CNN bénéficie
+des images négatives : elles apprennent au RPN à ne rien proposer
+sur des murs sains, réduisant les faux positifs.
+
+Pour les images non annotées, les cibles retournées sont :
+    boxes = Tensor(0, 4), labels = Tensor(0), masks = Tensor(0, H, W)
 
 Format de sortie attendu par Mask R-CNN (torchvision) :
-    image   : FloatTensor[3, H, W] dans [0, 1]
-    cibles  : {
+    image  : FloatTensor[3, H, W] dans [0, 1]
+    cibles : {
         "boxes"    : FloatTensor[N, 4]  (x1, y1, x2, y2)
         "labels"   : Int64Tensor[N]
         "masks"    : UInt8Tensor[N, H, W]
@@ -14,6 +26,7 @@ Format de sortie attendu par Mask R-CNN (torchvision) :
         "area"     : FloatTensor[N]
         "iscrowd"  : UInt8Tensor[N]
     }
+    où N = 0 pour les images sans fissures.
 """
 
 from pathlib import Path
@@ -34,7 +47,11 @@ from ..utilitaires.images import (
 
 class JeuDonneesFissuresCOCO(Dataset):
     """
-    Jeu de données pour la segmentation d'instance de fissures au format COCO.
+    Jeu de données pour la segmentation d'instance de fissures (format COCO).
+
+    Inclut TOUTES les images du dataset :
+      - Images annotées (avec fissures) → cibles non vides
+      - Images non annotées (sans fissures) → cibles vides, exemples négatifs
 
     Args:
         chemin_images      : Dossier contenant les images (train/, valid/ ou test/).
@@ -65,23 +82,29 @@ class JeuDonneesFissuresCOCO(Dataset):
 
         self.api_coco = COCO(str(self.chemin_annotations))
 
+        # Toutes les images du split (annotées ET non annotées)
         self.ids_images = sorted(self.api_coco.imgs.keys())
-        self.ids_images = self._filtrer_images_valides()
 
+        # Stats pour l'affichage
+        self._nb_avec_fissures, self._nb_sans_fissures = self._compter_types()
+
+        split = self.chemin_annotations.parent.name
         print(
-            f"[JeuDonnees] {len(self.ids_images)} images valides "
-            f"— split '{self.chemin_annotations.parent.name}'"
+            f"[JeuDonnees] split='{split}' | "
+            f"{len(self.ids_images)} images total | "
+            f"{self._nb_avec_fissures} avec fissures | "
+            f"{self._nb_sans_fissures} sans fissures (fond négatif)"
         )
 
-    def _filtrer_images_valides(self) -> List[int]:
-        """Garde uniquement les images ayant au moins une segmentation non vide."""
-        ids_valides = []
+    def _compter_types(self) -> Tuple[int, int]:
+        """Compte les images avec et sans annotations de segmentation."""
+        avec = 0
         for id_image in self.ids_images:
             ids_ann = self.api_coco.getAnnIds(imgIds=id_image)
             annotations = self.api_coco.loadAnns(ids_ann)
             if any(len(ann.get("segmentation", [])) > 0 for ann in annotations):
-                ids_valides.append(id_image)
-        return ids_valides
+                avec += 1
+        return avec, len(self.ids_images) - avec
 
     def __len__(self) -> int:
         return len(self.ids_images)
@@ -90,12 +113,15 @@ class JeuDonneesFissuresCOCO(Dataset):
         """
         Charge une image et ses annotations.
 
+        Pour les images sans fissures, les cibles retournées ont N=0
+        (tenseurs vides). Mask R-CNN gère nativement ce cas et traite
+        l'image comme un exemple purement négatif (fond).
+
         Étapes :
         1. Charger l'image → RGB numpy
         2. Redimensionner à taille_image × taille_image
-        3. Décoder les masques polygonaux COCO
-        4. Convertir en tenseurs PyTorch
-        5. Convertir en tenseur dans [0, 1]
+        3. Décoder les masques polygonaux COCO (vide si pas d'annotation)
+        4. Construire les tenseurs PyTorch
         """
         id_image = self.ids_images[index]
 
@@ -107,10 +133,6 @@ class JeuDonneesFissuresCOCO(Dataset):
 
         # ── 2. Redimensionner l'image ─────────────────────────────────────────
         image_rgb = redimensionner_image_carree(image_rgb, self.taille_image)
-
-        # Facteurs d'échelle pour adapter les boites et masques
-        echelle_x = self.taille_image / largeur_orig
-        echelle_y = self.taille_image / hauteur_orig
 
         # ── 3. Charger les annotations ────────────────────────────────────────
         ids_ann = self.api_coco.getAnnIds(imgIds=id_image)
@@ -125,10 +147,11 @@ class JeuDonneesFissuresCOCO(Dataset):
             # Décoder le masque polygonal → matrice binaire (taille originale)
             masque_orig = self.api_coco.annToMask(ann)
 
+            # Ignorer les masques trop petits (artéfacts d'annotation)
             if masque_orig.sum() < 50:
                 continue
 
-            # Redimensionner le masque à taille_image
+            # Redimensionner le masque
             masque_redim = cv2.resize(
                 masque_orig.astype(np.uint8),
                 (self.taille_image, self.taille_image),
@@ -149,16 +172,19 @@ class JeuDonneesFissuresCOCO(Dataset):
 
             boites.append([x1, y1, x2, y2])
             masques.append(masque_redim)
-            etiquettes.append(1)
+            etiquettes.append(1)  # 1 = fissure (0 = fond, réservé à Mask R-CNN)
             aires.append(float(masque_redim.sum()))
             est_foule.append(0)
 
         # ── 4. Construire les cibles ──────────────────────────────────────────
+        # N=0 pour les images sans fissures → exemple négatif (fond uniquement)
         if len(boites) == 0:
             cibles = {
                 "boxes":    torch.zeros((0, 4), dtype=torch.float32),
                 "labels":   torch.zeros((0,), dtype=torch.int64),
-                "masks":    torch.zeros((0, self.taille_image, self.taille_image), dtype=torch.uint8),
+                "masks":    torch.zeros(
+                    (0, self.taille_image, self.taille_image), dtype=torch.uint8
+                ),
                 "image_id": torch.tensor([id_image], dtype=torch.int64),
                 "area":     torch.zeros((0,), dtype=torch.float32),
                 "iscrowd":  torch.zeros((0,), dtype=torch.uint8),
