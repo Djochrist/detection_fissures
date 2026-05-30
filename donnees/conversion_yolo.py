@@ -51,6 +51,25 @@ def _creer_lien_ou_copie(source: Path, destination: Path, copier: bool) -> None:
         shutil.copy2(source, destination)
 
 
+def _ecrire_image_redimensionnee(source: Path, destination: Path, taille_image: int) -> None:
+    """Écrit une copie carrée redimensionnée de l'image source."""
+    image = cv2.imread(str(source))
+    if image is None:
+        raise FileNotFoundError(f"Image illisible : {source}")
+
+    image_redim = cv2.resize(
+        image,
+        (taille_image, taille_image),
+        interpolation=cv2.INTER_LINEAR,
+    )
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists() or destination.is_symlink():
+        destination.unlink()
+    if not cv2.imwrite(str(destination), image_redim):
+        raise OSError(f"Impossible d'écrire l'image redimensionnée : {destination}")
+
+
 def _normaliser_polygone(
     points: list[float],
     largeur: int,
@@ -130,6 +149,7 @@ def convertir_dataset_coco_vers_yolo(
     racine_coco: str | Path,
     racine_yolo: str | Path,
     copier_images: bool = False,
+    taille_image: int | None = None,
     nom_classe_defaut: str = "fissure",
 ) -> Path:
     """
@@ -144,6 +164,8 @@ def convertir_dataset_coco_vers_yolo(
         racine_coco        : Dossier contenant train/, valid/ et test/.
         racine_yolo        : Dossier de sortie YOLO.
         copier_images      : Si True, copie les images. Sinon crée des symlinks.
+        taille_image       : Si fourni, redimensionne les images en
+                             taille_image × taille_image pixels.
         nom_classe_defaut  : Nom de classe si COCO ne fournit pas de catégorie.
 
     Returns:
@@ -204,9 +226,16 @@ def convertir_dataset_coco_vers_yolo(
             if not chemin_image_source.is_file():
                 raise FileNotFoundError(f"Image COCO introuvable : {chemin_image_source}")
 
-            # Lien ou copie de l'image
+            # Image YOLO : redimensionnée si demandé, sinon lien ou copie.
             chemin_image_yolo = dossier_images_yolo / nom_fichier
-            _creer_lien_ou_copie(chemin_image_source, chemin_image_yolo, copier_images)
+            if taille_image is None:
+                _creer_lien_ou_copie(chemin_image_source, chemin_image_yolo, copier_images)
+            else:
+                _ecrire_image_redimensionnee(
+                    chemin_image_source,
+                    chemin_image_yolo,
+                    taille_image,
+                )
 
             largeur = int(image.get("width") or 0)
             hauteur = int(image.get("height") or 0)

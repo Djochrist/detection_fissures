@@ -46,7 +46,12 @@ def analyser_arguments() -> argparse.Namespace:
     )
     analyseur.add_argument("--epoques", type=int, default=100)
     analyseur.add_argument("--lot", type=int, default=8, help="Batch size")
-    analyseur.add_argument("--taille-image", type=int, default=384, help="imgsz YOLO")
+    analyseur.add_argument(
+        "--taille-image",
+        type=int,
+        default=1028,
+        help="Taille cible des images converties et imgsz YOLO",
+    )
     analyseur.add_argument("--lr", type=float, default=1e-3, help="lr0 Ultralytics")
     analyseur.add_argument("--lrf", type=float, default=0.01, help="Fraction finale du LR")
     analyseur.add_argument(
@@ -197,8 +202,14 @@ def _device_ultralytics(dispositif: str) -> str | None:
 
 def valider_arguments_yolo(args: argparse.Namespace) -> None:
     """Valide les réglages qui causent sinon des erreurs tardives Ultralytics."""
+    if args.taille_image <= 0:
+        raise ValueError("--taille-image doit être un entier positif.")
     if args.taille_image % 32 != 0:
-        raise ValueError("--taille-image doit être un multiple de 32 pour YOLO.")
+        print(
+            "[YOLO] Attention : --taille-image n'est pas un multiple de 32. "
+            "La conversion utilisera exactement cette taille, mais Ultralytics "
+            "peut ajuster imgsz pendant l'entraînement."
+        )
     if not 0.0 < args.fraction <= 1.0:
         raise ValueError("--fraction doit être dans l'intervalle ]0, 1].")
     if args.mask_ratio < 1:
@@ -467,6 +478,7 @@ def main() -> None:
         racine_coco=args.donnees,
         racine_yolo=racine_dataset_yolo,
         copier_images=args.copier_images,
+        taille_image=args.taille_image,
     )
     print(f"[YOLO] Dataset converti : {chemin_yaml}")
     afficher_resume_dataset_yolo(racine_dataset_yolo)
