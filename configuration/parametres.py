@@ -62,7 +62,7 @@ MASK R-CNN (maskrcnn_resnet50_fpn_v2)
     (< 1000 images) pour éviter l'overfitting.
     Valeur empiriquement validée sur datasets de segmentation COCO.
 
-YOLO11-SEG
+YOLO-SEG (YOLO11 et YOLO26)
 ───────────────────────────────────────────────────────────────────────
   Voir entrainer_yolo.py pour la justification des paramètres YOLO.
   Les paramètres critiques pour les fissures :
@@ -70,6 +70,13 @@ YOLO11-SEG
     degrees    = 45   → fissures à tous les angles possibles
     copy_paste = 0.4  → augmentation rare objet (fissures < 5% pixels)
     patience   = 50   → les fissures nécessitent plus de convergence
+
+  Choix du modèle :
+    yolo11s-seg / yolo26s-seg  → Small  (~9-10M params)  dataset < 1000 images
+    yolo11m-seg / yolo26m-seg  → Medium (~20M params)    dataset ≥ 1000 images
+    Le défaut est MEDIUM (yolo11m-seg) car les fissures fines
+    bénéficient de la capacité supplémentaire quand le dataset le permet.
+    YOLO26 est la génération 2026, compatible avec le même script.
 """
 
 from dataclasses import dataclass, field
@@ -91,8 +98,9 @@ ARCHITECTURES_MODELES_SEGMENTATION: tuple[str, ...] = (
     ARCHITECTURE_MASKRCNN_RESNET50_FPN_V2,
 )
 
-# YOLO-seg : yolo11s recommandé pour fissures (nano trop simple pour objet fin)
-MODELE_YOLOV11_SEG_DEFAUT = "yolo11s-seg.pt"
+# YOLO11-seg : medium par défaut (meilleure capacité pour fissures fines)
+# Utiliser small (yolo11s) si dataset < 1000 images ou GPU < 6 Go
+MODELE_YOLOV11_SEG_DEFAUT = "yolo11m-seg.pt"
 MODELES_YOLOV11_SEG_OFFICIELS: tuple[str, ...] = (
     "yolo11n-seg.pt",
     "yolo11s-seg.pt",
@@ -101,9 +109,20 @@ MODELES_YOLOV11_SEG_OFFICIELS: tuple[str, ...] = (
     "yolo11x-seg.pt",
 )
 
-# Alias génériques (compatibilité YOLO11-seg et futures versions)
+# YOLO26-seg : génération 2026, même interface qu'Ultralytics YOLO11
+# Utiliser yolo26m pour la précision, yolo26s pour la vitesse
+MODELE_YOLO26_SEG_DEFAUT = "yolo26m-seg.pt"
+MODELES_YOLO26_SEG_OFFICIELS: tuple[str, ...] = (
+    "yolo26n-seg.pt",
+    "yolo26s-seg.pt",
+    "yolo26m-seg.pt",
+    "yolo26l-seg.pt",
+    "yolo26x-seg.pt",
+)
+
+# Alias génériques — regroupe YOLO11 + YOLO26 pour la validation
 MODELE_YOLO_SEG_DEFAUT = MODELE_YOLOV11_SEG_DEFAUT
-MODELES_YOLO_SEG_OFFICIELS = MODELES_YOLOV11_SEG_OFFICIELS
+MODELES_YOLO_SEG_OFFICIELS = MODELES_YOLOV11_SEG_OFFICIELS + MODELES_YOLO26_SEG_OFFICIELS
 
 
 @dataclass

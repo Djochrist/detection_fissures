@@ -42,7 +42,12 @@ def analyser_arguments() -> argparse.Namespace:
         "--modele",
         type=str,
         default=MODELE_YOLO_SEG_DEFAUT,
-        help="Poids YOLO segmentation : yolo26*-seg.pt recommandé, yolo11*-seg.pt compatible",
+        help=(
+            "Poids YOLO segmentation. "
+            "YOLO11 : yolo11s-seg.pt (rapide) | yolo11m-seg.pt (précis, défaut). "
+            "YOLO26 : yolo26s-seg.pt (rapide) | yolo26m-seg.pt (précis). "
+            "Un checkpoint .pt local est aussi accepté."
+        ),
     )
     analyseur.add_argument("--epoques", type=int, default=100)
     analyseur.add_argument("--lot", type=int, default=8, help="Batch size")
@@ -230,20 +235,32 @@ def _cache_ultralytics(cache: str) -> bool | str:
 
 
 def verifier_modele_yolo_seg(chemin_modele: str) -> None:
-    """Bloque les poids YOLO qui ne sont pas des modèles de segmentation."""
+    """Bloque les poids YOLO qui ne sont pas des modèles de segmentation.
+
+    Accepte :
+    - Les noms officiels YOLO11-seg et YOLO26-seg (liste dans parametres.py)
+    - Tout fichier .pt dont le nom contient 'yolo' ET '-seg' (checkpoints custom)
+    """
     nom_modele = Path(chemin_modele).name
+
     if nom_modele in MODELES_YOLO_SEG_OFFICIELS:
         return
 
-    stem = Path(nom_modele).stem
+    stem = Path(nom_modele).stem.lower()
     if stem.startswith("yolo") and "-seg" in stem:
         return
 
-    choix = ", ".join(MODELES_YOLO_SEG_OFFICIELS)
+    from detection_fissures.configuration.parametres import (
+        MODELES_YOLOV11_SEG_OFFICIELS,
+        MODELES_YOLO26_SEG_OFFICIELS,
+    )
+    choix_yolo11 = ", ".join(MODELES_YOLOV11_SEG_OFFICIELS)
+    choix_yolo26 = ", ".join(MODELES_YOLO26_SEG_OFFICIELS)
     raise ValueError(
-        f"Modèle YOLO non autorisé : {chemin_modele}. "
-        f"Ce projet accepte uniquement des poids YOLO-seg ({choix}) "
-        "ou un checkpoint YOLO-seg nommé explicitement."
+        f"Modèle YOLO non autorisé : '{chemin_modele}'.\n"
+        f"  YOLO11 acceptés : {choix_yolo11}\n"
+        f"  YOLO26 acceptés : {choix_yolo26}\n"
+        "  Ou un checkpoint local nommé 'yolo*-seg*.pt'."
     )
 
 

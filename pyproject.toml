@@ -7,7 +7,7 @@ name = "detection-fissures"
 version = "1.0.0"
 description = "Détection et segmentation de fissures structurelles par Mask R-CNN ResNet50-FPN-V2 et YOLOv11"
 readme = "README.md"
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.10,<=3.10.99"
 license = { text = "MIT" }
 authors = [{ name = "Équipe Génie Civil IA" }]
 
