@@ -36,11 +36,11 @@ pour déterminer le TYPE de chaque fissure selon deux axes :
 NOTE SUR LES SEUILS :
     Les seuils en pixels dépendent de la résolution et de la distance caméra.
     Pour une calibration physique, multiplier par la résolution mm/pixel.
-    Les valeurs par défaut sont adaptées aux images 384×384px.
+    Les valeurs par défaut sont adaptées aux images 640×640px (dataset Roboflow YOLOv11).
 
 USAGE :
     from detection_fissures.analyse.classificateur_fissures import classifier_predictions
-    resultats = classifier_predictions(predictions, largeur_image=384, hauteur_image=384)
+    resultats = classifier_predictions(predictions, largeur_image=640, hauteur_image=640)
 """
 
 from dataclasses import dataclass, field
@@ -58,8 +58,8 @@ from scipy.ndimage import distance_transform_edt
 SEUIL_ANGLE_HORIZONTAL: float = 20.0   # Degrés : en dessous → horizontale
 SEUIL_ANGLE_VERTICAL: float   = 70.0   # Degrés : au dessus → verticale
 
-SEUIL_LARGEUR_SUPERFICIELLE: float = 3.5   # Pixels : en dessous → superficielle
-SEUIL_LARGEUR_PROFONDE: float      = 7.0   # Pixels : au dessus → profonde
+SEUIL_LARGEUR_SUPERFICIELLE: float = 6.0   # Pixels : en dessous → superficielle (640×640px)
+SEUIL_LARGEUR_PROFONDE: float      = 12.0  # Pixels : au dessus → profonde (640×640px)
 
 SEUIL_TRAVERSEE: float = 0.65   # Ratio (0-1) : bbox > 65% de la dim. image → transversale
 
@@ -444,7 +444,7 @@ def classifier_predictions(
         Liste de ResultatClassification, une par fissure détectée.
 
     Example:
-        >>> resultats = classifier_predictions(predictions, 384, 384)
+        >>> resultats = classifier_predictions(predictions, 640, 640)
         >>> for r in resultats:
         ...     print(r)
     """

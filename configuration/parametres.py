@@ -7,14 +7,14 @@ JUSTIFICATION DES PARAMÈTRES CHOISIS
 MASK R-CNN (maskrcnn_resnet50_fpn_v2)
 ──────────────────────────────────────
 
-  taille_image = 384×384
-    Images Roboflow exportées en 384×384. Changer cette valeur
-    sans redimensionner le dataset dégrade les performances.
+  taille_image = 640×640
+    Images Roboflow exportées en 640×640 (format YOLOv11 natif).
+    Changer cette valeur sans redimensionner le dataset dégrade les performances.
 
   taille_lot = 2  (CPU) / 4-8  (GPU 8-16 Go)
     Mask R-CNN stocke des tenseurs de masques [N, H, W] par image.
-    À 384×384, lot=2 sur CPU consomme ~3-4 Go de RAM.
-    Sur GPU 8 Go : lot=4. Sur GPU 16 Go : lot=8.
+    À 640×640, lot=2 sur CPU consomme ~6-8 Go de RAM.
+    Sur GPU 8 Go : lot=2-4. Sur GPU 16 Go : lot=6-8.
 
   nombre_epoques = 60
     La stratégie 3 phases nécessite au moins :
@@ -54,28 +54,30 @@ MASK R-CNN (maskrcnn_resnet50_fpn_v2)
     très proches. 0.5 (standard) fusionnerait des fissures séparées.
 
   detections_max_par_image = 50
-    Une image de 384×384 peut contenir 5-20 fissures visibles.
+    Une image de 640×640 peut contenir 5-20 fissures visibles.
     50 est largement suffisant et évite les faux positifs multiples.
 
   decroissance_poids = 5e-4
     Régularisation L2 (AdamW). Critique pour les petits datasets
-    (< 1000 images) pour éviter l'overfitting.
+    pour éviter l'overfitting.
     Valeur empiriquement validée sur datasets de segmentation COCO.
 
-YOLO-SEG (YOLO11 et YOLO26)
+YOLO-SEG (YOLO11 et YOLO26) — Dataset Roboflow 640×640, 3794 images
 ───────────────────────────────────────────────────────────────────────
   Voir entrainer_yolo.py pour la justification des paramètres YOLO.
-  Les paramètres critiques pour les fissures :
-    mask_ratio = 1    → masques pleine résolution (fissures de 1-2px)
-    degrees    = 45   → fissures à tous les angles possibles
-    copy_paste = 0.4  → augmentation rare objet (fissures < 5% pixels)
+  Les paramètres critiques pour les fissures sur ce dataset :
+    mask_ratio = 1    → masques pleine résolution (fissures de 1-3px)
+    degrees    = 10   → fissures à angles variés (dataset déjà augmenté)
+    copy_paste = 0.3  → augmentation rare objet (fissures < 5% pixels)
     patience   = 50   → les fissures nécessitent plus de convergence
+    mosaic     = 0.4  → modéré car Roboflow a déjà augmenté 5× le dataset
+    warmup     = 5    → warmup étendu pour lr0=0.01
 
   Choix du modèle :
     yolo11s-seg / yolo26s-seg  → Small  (~9-10M params)  dataset < 1000 images
     yolo11m-seg / yolo26m-seg  → Medium (~20M params)    dataset ≥ 1000 images
-    Le défaut est MEDIUM (yolo11m-seg) car les fissures fines
-    bénéficient de la capacité supplémentaire quand le dataset le permet.
+    Le défaut est MEDIUM (yolo11m-seg) : 3794 images 640×640 justifie
+    la capacité supplémentaire pour les fissures fines.
     YOLO26 est la génération 2026, compatible avec le même script.
 """
 
@@ -181,7 +183,7 @@ class ParametresModele:
     Hyperparamètres de l'architecture Mask R-CNN pour la détection de fissures.
 
     Ces valeurs sont calibrées pour :
-      - Images 384×384 (export Roboflow standard)
+      - Images 640×640 (export Roboflow YOLOv11 natif)
       - Fissures fines (< 5% des pixels)
       - Transfer learning depuis COCO (91 classes → 2 classes)
     """
@@ -191,9 +193,9 @@ class ParametresModele:
     # 2 classes : 0 = fond (background), 1 = fissure
     nombre_classes: int = 2
 
-    # Résolution identique à l'export Roboflow
-    taille_image_min: int = 384
-    taille_image_max: int = 384
+    # Résolution identique à l'export Roboflow 640×640
+    taille_image_min: int = 640
+    taille_image_max: int = 640
 
     # 0.05 = standard COCO pour l'évaluation mAP (pas pour l'inférence)
     # Pour l'inférence (analyser.py) : utiliser 0.30 à 0.50
@@ -217,7 +219,7 @@ class ParametresModele:
     inclure_images_sans_fissures: bool = True
 
     # Ancres RPN adaptées aux fissures longues et minces
-    # Petites tailles (8-128px) pour fissures à 384×384
+    # Tailles couvrant 8-256px pour fissures à 640×640
     tailles_ancres_rpn: tuple = (
         (8,),
         (16,),
@@ -248,7 +250,7 @@ class ParametresEntrainement:
       Phase 3 : époques 15-60 → fine-tuning complet
     """
 
-    # Lot de 2 sur CPU (RAM ~3-4 Go) ; 4-8 sur GPU selon VRAM
+    # Lot de 2 sur CPU (RAM ~6-8 Go) ; 4-8 sur GPU selon VRAM
     taille_lot: int = 2
 
     # 60 = durée minimale pour les 3 phases + early stopping

@@ -1,9 +1,12 @@
 """
 Entraînement YOLO-seg pour la détection de fissures.
 
-Le dataset source reste au format COCO Roboflow. Ce script le convertit en
-YOLO segmentation dans le dossier de sortie, puis lance Ultralytics.
-YOLO26-seg est utilisé par défaut en 2026, avec compatibilité YOLO11-seg.
+Supporte deux modes d'entrée :
+  - Dataset YOLO natif (Roboflow YOLOv11) : utiliser --yaml data.yaml
+  - Dataset COCO (conversion automatique)  : utiliser --donnees dataset/
+    (détection automatique si data.yaml présent dans le dossier)
+
+YOLO11-seg est recommandé. YOLO26-seg est aussi supporté.
 """
 
 from __future__ import annotations
@@ -27,10 +30,23 @@ def analyser_arguments() -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     analyseur.add_argument(
+        "--yaml",
+        type=str,
+        default=None,
+        help=(
+            "Chemin direct vers le fichier data.yaml du dataset YOLO natif. "
+            "Quand fourni, aucune conversion COCO n'est effectuée. "
+            "Exemple : --yaml dataset/data.yaml"
+        ),
+    )
+    analyseur.add_argument(
         "--donnees",
         type=str,
         default=str(configuration.chemins.donnees_racine),
-        help="Répertoire COCO racine contenant train/, valid/ et test/",
+        help=(
+            "Répertoire racine du dataset. Si data.yaml y est présent, le format "
+            "YOLO natif est détecté automatiquement. Sinon, conversion COCO."
+        ),
     )
     analyseur.add_argument(
         "--sorties",
@@ -49,15 +65,15 @@ def analyser_arguments() -> argparse.Namespace:
             "Un checkpoint .pt local est aussi accepté."
         ),
     )
-    analyseur.add_argument("--epoques", type=int, default=100)
+    analyseur.add_argument("--epoques", type=int, default=150)
     analyseur.add_argument("--lot", type=int, default=8, help="Batch size")
     analyseur.add_argument(
         "--taille-image",
         type=int,
-        default=1028,
-        help="Taille cible des images converties et imgsz YOLO",
+        default=640,
+        help="Taille cible des images (imgsz YOLO). Doit correspondre au dataset.",
     )
-    analyseur.add_argument("--lr", type=float, default=1e-3, help="lr0 Ultralytics")
+    analyseur.add_argument("--lr", type=float, default=1e-2, help="lr0 Ultralytics")
     analyseur.add_argument("--lrf", type=float, default=0.01, help="Fraction finale du LR")
     analyseur.add_argument(
         "--weight-decay",
@@ -65,7 +81,7 @@ def analyser_arguments() -> argparse.Namespace:
         default=5e-4,
         help="Décroissance des poids Ultralytics",
     )
-    analyseur.add_argument("--patience", type=int, default=25, help="Patience early stopping")
+    analyseur.add_argument("--patience", type=int, default=50, help="Patience early stopping")
     analyseur.add_argument("--workers", type=int, default=2)
     analyseur.add_argument(
         "--optimizer",
@@ -76,7 +92,7 @@ def analyser_arguments() -> argparse.Namespace:
     analyseur.add_argument(
         "--warmup-epochs",
         type=float,
-        default=3.0,
+        default=5.0,
         help="Nombre d'époques de warmup",
     )
     analyseur.add_argument(
@@ -89,20 +105,65 @@ def analyser_arguments() -> argparse.Namespace:
     analyseur.add_argument(
         "--close-mosaic",
         type=int,
-        default=15,
+        default=20,
         help="Désactive mosaic sur les N dernières époques",
     )
     analyseur.add_argument(
         "--mosaic",
         type=float,
-        default=0.3,
-        help="Probabilité mosaic. Gardée modérée car Roboflow a déjà augmenté le dataset.",
+        default=0.4,
+        help=(
+            "Probabilité mosaic. Gardée modérée car le dataset Roboflow "
+            "est déjà augmenté 5× (flip, rotation, luminosité, exposition)."
+        ),
     )
     analyseur.add_argument(
         "--copy-paste",
         type=float,
-        default=0.0,
-        help="Probabilité copy-paste segmentation",
+        default=0.3,
+        help="Probabilité copy-paste segmentation (utile pour les fissures rares)",
+    )
+    analyseur.add_argument(
+        "--degrees",
+        type=float,
+        default=10.0,
+        help="Rotation aléatoire maximale en degrés (augmentation)",
+    )
+    analyseur.add_argument(
+        "--flipud",
+        type=float,
+        default=0.1,
+        help="Probabilité de retournement vertical",
+    )
+    analyseur.add_argument(
+        "--hsv-h",
+        type=float,
+        default=0.015,
+        help="Variation HSV teinte (augmentation couleur)",
+    )
+    analyseur.add_argument(
+        "--hsv-s",
+        type=float,
+        default=0.7,
+        help="Variation HSV saturation",
+    )
+    analyseur.add_argument(
+        "--hsv-v",
+        type=float,
+        default=0.4,
+        help="Variation HSV valeur (luminosité)",
+    )
+    analyseur.add_argument(
+        "--translate",
+        type=float,
+        default=0.1,
+        help="Translation aléatoire (fraction de la taille de l'image)",
+    )
+    analyseur.add_argument(
+        "--scale",
+        type=float,
+        default=0.5,
+        help="Mise à l'échelle aléatoire",
     )
     analyseur.add_argument(
         "--multi-scale",
@@ -113,8 +174,11 @@ def analyser_arguments() -> argparse.Namespace:
     analyseur.add_argument(
         "--mask-ratio",
         type=int,
-        default=2,
-        help="Sous-échantillonnage des masques. 2 garde plus de détail que le défaut 4.",
+        default=1,
+        help=(
+            "Sous-échantillonnage des masques. "
+            "1 = pleine résolution (recommandé pour fissures fines de 1-3px)."
+        ),
     )
     analyseur.add_argument(
         "--sans-overlap-mask",
@@ -128,7 +192,7 @@ def analyser_arguments() -> argparse.Namespace:
         dest="classe_unique",
         action="store_false",
         default=True,
-        help="Garde les classes COCO séparées au lieu de tout apprendre comme fissure",
+        help="Désactive single_cls (utile si dataset multi-classes)",
     )
     analyseur.add_argument(
         "--fraction",
@@ -140,7 +204,7 @@ def analyser_arguments() -> argparse.Namespace:
         "--cache",
         choices=["none", "ram", "disk"],
         default="none",
-        help="Cache Ultralytics. 'none' évite de consommer RAM/disque inutilement.",
+        help="Cache Ultralytics. 'ram' accélère si RAM ≥ 32 Go.",
     )
     analyseur.add_argument(
         "--max-det",
@@ -170,12 +234,12 @@ def analyser_arguments() -> argparse.Namespace:
     analyseur.add_argument(
         "--copier-images",
         action="store_true",
-        help="Copie les images au lieu de créer des liens symboliques",
+        help="(Mode COCO→YOLO) Copie les images au lieu de créer des liens symboliques",
     )
     analyseur.add_argument(
         "--convertir-seulement",
         action="store_true",
-        help="Convertit le dataset COCO vers YOLO sans entraîner",
+        help="(Mode COCO→YOLO) Convertit le dataset sans entraîner",
     )
     analyseur.add_argument(
         "--exist-ok",
@@ -212,8 +276,7 @@ def valider_arguments_yolo(args: argparse.Namespace) -> None:
     if args.taille_image % 32 != 0:
         print(
             "[YOLO] Attention : --taille-image n'est pas un multiple de 32. "
-            "La conversion utilisera exactement cette taille, mais Ultralytics "
-            "peut ajuster imgsz pendant l'entraînement."
+            "Ultralytics peut ajuster imgsz pendant l'entraînement."
         )
     if not 0.0 < args.fraction <= 1.0:
         raise ValueError("--fraction doit être dans l'intervalle ]0, 1].")
@@ -282,13 +345,15 @@ def _compter_lignes_labels(dossier_labels: Path) -> tuple[int, int]:
 
 
 def afficher_resume_dataset_yolo(racine_dataset_yolo: Path) -> None:
-    """Affiche un résumé compact du dataset YOLO converti."""
+    """Affiche un résumé compact du dataset YOLO."""
     print("\n" + "═" * 55)
-    print("  DATASET YOLO-SEG CONVERTI")
+    print("  DATASET YOLO-SEG")
     print("═" * 55)
     for split in ("train", "valid", "test"):
         dossier_images = racine_dataset_yolo / "images" / split
         dossier_labels = racine_dataset_yolo / "labels" / split
+        if not dossier_images.exists():
+            continue
         nb_images = sum(
             1
             for chemin in dossier_images.iterdir()
@@ -434,6 +499,13 @@ def construire_arguments_train_yolo(
         "close_mosaic": args.close_mosaic,
         "mosaic": args.mosaic,
         "copy_paste": args.copy_paste,
+        "degrees": args.degrees,
+        "flipud": args.flipud,
+        "hsv_h": args.hsv_h,
+        "hsv_s": args.hsv_s,
+        "hsv_v": args.hsv_v,
+        "translate": args.translate,
+        "scale": args.scale,
         "multi_scale": args.multi_scale,
         "mask_ratio": args.mask_ratio,
         "overlap_mask": args.overlap_mask,
@@ -462,6 +534,9 @@ def afficher_configuration_yolo(args: argparse.Namespace, checkpoint_resume: Pat
         ("cos_lr", args.cos_lr),
         ("Mosaic", args.mosaic),
         ("Close mosaic", args.close_mosaic),
+        ("Copy-paste", args.copy_paste),
+        ("Degrees", args.degrees),
+        ("Flip vertical", args.flipud),
         ("Mask ratio", args.mask_ratio),
         ("Classe unique", args.classe_unique),
         ("Cache", args.cache),
@@ -479,26 +554,42 @@ def afficher_configuration_yolo(args: argparse.Namespace, checkpoint_resume: Pat
 
 
 def main() -> None:
-    """Convertit le dataset puis entraîne YOLO-seg."""
+    """Entraîne YOLO-seg — supporte les datasets YOLO natifs et COCO."""
     args = analyser_arguments()
     valider_arguments_yolo(args)
     verifier_modele_yolo_seg(args.modele)
     racine_sorties = Path(args.sorties).expanduser().resolve()
-    racine_dataset_yolo = racine_sorties / "dataset_yolo"
     checkpoint_resume = Path(args.resume).expanduser().resolve() if args.resume else None
     if checkpoint_resume is not None and not checkpoint_resume.is_file():
         raise FileNotFoundError(f"Checkpoint YOLO de reprise introuvable : {checkpoint_resume}")
 
-    from detection_fissures.donnees.conversion_yolo import convertir_dataset_coco_vers_yolo
-
-    chemin_yaml = convertir_dataset_coco_vers_yolo(
-        racine_coco=args.donnees,
-        racine_yolo=racine_dataset_yolo,
-        copier_images=args.copier_images,
-        taille_image=args.taille_image,
-    )
-    print(f"[YOLO] Dataset converti : {chemin_yaml}")
-    afficher_resume_dataset_yolo(racine_dataset_yolo)
+    # ── Déterminer le chemin YAML ──────────────────────────────────────────────
+    if args.yaml:
+        # Mode explicite : dataset YOLO natif fourni via --yaml
+        chemin_yaml = Path(args.yaml).expanduser().resolve()
+        if not chemin_yaml.is_file():
+            raise FileNotFoundError(f"Fichier data.yaml introuvable : {chemin_yaml}")
+        print(f"[YOLO] Dataset YOLO natif (--yaml) : {chemin_yaml}")
+        afficher_resume_dataset_yolo(chemin_yaml.parent)
+    else:
+        # Détection automatique : data.yaml présent dans --donnees ?
+        chemin_yaml_auto = Path(args.donnees).expanduser().resolve() / "data.yaml"
+        if chemin_yaml_auto.is_file():
+            chemin_yaml = chemin_yaml_auto
+            print(f"[YOLO] Format YOLO natif détecté automatiquement : {chemin_yaml}")
+            afficher_resume_dataset_yolo(chemin_yaml.parent)
+        else:
+            # Conversion depuis COCO
+            racine_dataset_yolo = racine_sorties / "dataset_yolo"
+            from detection_fissures.donnees.conversion_yolo import convertir_dataset_coco_vers_yolo
+            chemin_yaml = convertir_dataset_coco_vers_yolo(
+                racine_coco=args.donnees,
+                racine_yolo=racine_dataset_yolo,
+                copier_images=args.copier_images,
+                taille_image=args.taille_image,
+            )
+            print(f"[YOLO] Dataset converti depuis COCO : {chemin_yaml}")
+            afficher_resume_dataset_yolo(racine_dataset_yolo)
 
     if args.convertir_seulement:
         print("[YOLO] Conversion terminée, entraînement ignoré.")
@@ -508,7 +599,7 @@ def main() -> None:
         from ultralytics import YOLO
     except ImportError as exc:
         raise ImportError(
-            "Le paquet 'ultralytics>=8.4.0' est requis pour YOLO26/YOLO11-seg. "
+            "Le paquet 'ultralytics>=8.4.0' est requis pour YOLO11/YOLO26-seg. "
             "Installez-le avec : pip install -U ultralytics"
         ) from exc
 

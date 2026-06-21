@@ -72,33 +72,34 @@ Imaginez que vous préparez un examen :
 Si on utilisait les mêmes images pour apprendre et pour évaluer, on mesurerait si le modèle a
 mémorisé les images, pas s'il sait vraiment détecter les fissures.
 
-### Le format COCO
+### Le format YOLOv11 natif (Roboflow)
 
-COCO est un format de fichier standard pour les annotations d'images.
-Chaque dossier contient un fichier `_annotations.coco.json` qui ressemble à ceci (simplifié) :
+Le dataset utilise le **format YOLOv11 natif** de Roboflow. Chaque image a un fichier `.txt`
+correspondant qui contient les annotations (une ligne par fissure) :
 
-```json
-{
-  "images": [
-    { "id": 1, "file_name": "mur_001.jpg", "width": 384, "height": 384 }
-  ],
-  "annotations": [
-    {
-      "image_id": 1,
-      "segmentation": [[120, 45, 135, 50, 140, 80, ...]],
-      "bbox": [120, 45, 20, 35]
-    }
-  ]
-}
+```
+0 0.512 0.345 0.021 0.387 0.523 0.356 0.019 0.401 ...
+│  │     │    └─ coordonnées du polygone (paires x,y normalisées)
+│  └─────┘
+│  centre bbox (x,y) normalisé
+└── classe (0 = crack)
 ```
 
-- `segmentation` : la liste des coordonnées des pixels qui forment le contour de la fissure
-- `bbox` : la boîte englobante [x, y, largeur, hauteur]
+Le fichier `data.yaml` décrit la structure du dataset :
+
+```yaml
+path: /chemin/vers/dataset   # à adapter selon votre environnement
+train: train/images
+val: valid/images
+test: test/images
+nc: 1
+names: ['crack']
+```
 
 ### La résolution des images
 
-Toutes nos images sont en **384 × 384 pixels** (carré).
-C'est la résolution choisie par Roboflow lors de l'export du dataset.
+Toutes nos images sont en **640 × 640 pixels** (carré).
+C'est la résolution choisie par Roboflow lors de l'export YOLOv11 du dataset.
 Le modèle recevra toujours des images de cette taille exacte.
 
 ### Ce qui a déjà été fait (prétraitement Roboflow)
@@ -109,14 +110,11 @@ transformée en plusieurs variantes pour enrichir l'apprentissage :
 | Transformation appliquée | Paramètre exact | Pourquoi |
 |---|---|---|
 | Auto-orientation EXIF | — | Corrige l'orientation si la caméra était penchée lors de la prise de vue |
-| Redimensionnement | 384 × 384 px (étirement) | Standardise toutes les images à la même taille |
-| Flip horizontal (miroir) | 50 % de probabilité | La même fissure peut être à gauche ou à droite |
-| Rotations 90° | Aucune / horaire / anti-horaire (équiprobable) | La photo peut être prise sous différents angles |
-| Recadrage aléatoire | 0 – 20 % de la boîte | L'inspecteur ne voit jamais tout le mur |
-| Rotation aléatoire | –15° à +15° | La caméra n'est jamais parfaitement droite |
-| Cisaillement (shear) | ±10° horizontal et vertical | Simule une perspective légèrement oblique |
-| Variation de luminosité | ±15 % | Éclairage différent selon l'heure et la saison |
-| Variation d'exposition | ±10 % | Simule une caméra sur/sous-exposée |
+| Redimensionnement | 640 × 640 px (étirement) | Standardise toutes les images à la même taille |
+| Flip horizontal (miroir) | — | La même fissure peut être à gauche ou à droite |
+| Rotation aléatoire | ±5° | La caméra n'est jamais parfaitement droite |
+| Variation de luminosité | ±10 % | Éclairage différent selon l'heure et la saison |
+| Variation d'exposition | ±5 % | Simule une caméra sur/sous-exposée |
 | Flou gaussien | 0 – 2.5 pixels | Simulation d'une caméra pas parfaitement mise au point |
 | Bruit sel-et-poivre | 0.1 % des pixels | Simulation d'un capteur de mauvaise qualité |
 
@@ -595,7 +593,7 @@ Utilise les paramètres par défaut :
 - 50 époques
 - Lot de 4 images
 - LR = 0.0003
-- Taille image : 384×384
+- Taille image : 640×640
 
 ### Commandes avancées
 
@@ -632,18 +630,14 @@ sorties/
 YOLO-seg :
 
 ```text
-sorties_yolo26/
-├── dataset_yolo/                         ← conversion COCO -> YOLO
-│   ├── images/{train,valid,test}/         ← liens ou copies des images source
-│   ├── labels/{train,valid,test}/
-│   └── data.yaml
-├── entrainements/yolo_seg_fissures/
+sorties_yolo/
+├── entrainements/yolo11m_fissures/
 │   ├── weights/best.pt                    ← meilleur modèle
 │   ├── weights/last.pt                    ← reprise d'entraînement
 │   ├── results.csv
 │   ├── results.png
 │   └── val_batch*_pred.jpg                ← exemples annotés validation
-└── evaluations/yolo_seg_fissures_test/
+└── evaluations/yolo11m_fissures_test/
     └── val_batch*_pred.jpg                ← exemples annotés test
 ```
 
@@ -658,13 +652,20 @@ analyses/
 
 ### Sur Google Colab
 
-```python
-# 1. Monter votre Google Drive
-from google.colab import drive
-drive.mount('/content/drive')
+Voir `documentation/guide_colab.md` pour les instructions complètes.
 
-# 2. Placer votre dataset dans Drive puis lancer :
-!python entrainer.py --donnees /content/drive/MyDrive/dataset --lot 8
+```bash
+# Entraîner YOLO11m avec dataset Drive
+!python entrainer_yolo.py \
+  --yaml          /content/drive/MyDrive/dataset/data.yaml \
+  --modele        yolo11m-seg.pt \
+  --taille-image  640 \
+  --epoques       150 \
+  --lot           8 \
+  --mask-ratio    1 \
+  --patience      50 \
+  --dispositif    auto \
+  --sorties       /content/drive/MyDrive/sorties_yolo
 ```
 
 ---
@@ -691,8 +692,8 @@ python entrainer.py --sans-mixte
 **Causes possibles et solutions :**
 
 1. **Taux d'apprentissage trop élevé** → essayer `--lr 1e-5`
-2. **Problème dans les annotations** → vérifier que `_annotations.coco.json` est correct
-3. **Dataset mal structuré** → vérifier que les images sont bien dans `train/`, `valid/`, `test/`
+2. **Problème dans data.yaml** → vérifier que le champ `path:` pointe vers le bon dossier
+3. **Dataset mal structuré** → vérifier que `images/` et `labels/` existent dans `train/`, `valid/`, `test/`
 
 ### La validation ne s'améliore plus mais la perte train continue de baisser
 

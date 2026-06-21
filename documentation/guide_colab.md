@@ -1,13 +1,12 @@
 # Entraîner sur Google Colab avec dataset sur Drive
 
-Ce guide part d'un Notebook Colab vide et d'un dataset stocké dans Google Drive.
+Dataset : format YOLOv11 natif Roboflow — 640×640px — 3794 images — 1 classe (crack).
 
 ## 1. Préparer Colab
 
 1. Ouvre Google Colab.
-2. `Exécution` -> `Modifier le type d'exécution`.
-3. Choisis `GPU`.
-4. Lance les cellules ci-dessous dans l'ordre.
+2. `Exécution` → `Modifier le type d'exécution` → choisir `GPU`.
+3. Lance les cellules ci-dessous dans l'ordre.
 
 ## 2. Monter Google Drive
 
@@ -20,24 +19,22 @@ Place ton dataset dans Drive avec cette structure :
 
 ```text
 /content/drive/MyDrive/dataset/
-├── train/
-│   ├── _annotations.coco.json
-│   └── images...
-├── valid/
-│   ├── _annotations.coco.json
-│   └── images...
-└── test/
-    ├── _annotations.coco.json
-    └── images...
+├── data.yaml
+├── images/
+│   ├── train/
+│   ├── valid/
+│   └── test/
+└── labels/
+    ├── train/
+    ├── valid/
+    └── test/
 ```
 
-Définis le chemin :
+Définis les chemins :
 
 ```python
-DATASET = "/content/drive/MyDrive/dataset"
-SORTIES_MASK = "/content/drive/MyDrive/detection_fissures_sorties_maskrcnn"
-SORTIES_YOLO = "/content/drive/MyDrive/detection_fissures_sorties_yolo26"
-ANALYSES = "/content/drive/MyDrive/detection_fissures_analyses"
+DATASET_YAML = "/content/drive/MyDrive/dataset/data.yaml"
+SORTIES_YOLO = "/content/drive/MyDrive/detection_fissures_sorties_yolo"
 ```
 
 ## 3. Cloner le projet
@@ -51,157 +48,107 @@ ANALYSES = "/content/drive/MyDrive/detection_fissures_analyses"
 
 ## 4. Installer les dépendances
 
-Colab fournit déjà PyTorch GPU dans la plupart des runtimes. On installe les
-dépendances projet autour de cette version.
+Colab fournit déjà PyTorch GPU. Installer les dépendances projet :
 
 ```bash
 !pip install -q -U opencv-python numpy scipy pycocotools "torchmetrics[detection]" rich ultralytics
+!pip install -q -e .
 ```
 
 Vérification :
 
 ```bash
-!python -c "import torch, torchvision, torchmetrics, cv2, pycocotools; print('cuda=', torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU')"
+!python -c "import torch; print('CUDA:', torch.cuda.is_available(), '|', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU')"
+!python entrainer_yolo.py --help
 ```
 
-## 5. Vérifier le dataset
+## 5. Adapter data.yaml
 
-```bash
-!ls "$DATASET"
-!ls "$DATASET/train" | head
-!test -f "$DATASET/train/_annotations.coco.json" && echo "train OK"
-!test -f "$DATASET/valid/_annotations.coco.json" && echo "valid OK"
-!test -f "$DATASET/test/_annotations.coco.json" && echo "test OK"
+Le `data.yaml` Roboflow contient un chemin absolu qui doit pointer vers votre Drive :
+
+```python
+import yaml, pathlib
+
+yaml_path = pathlib.Path(DATASET_YAML)
+config = yaml.safe_load(yaml_path.read_text())
+config['path'] = str(yaml_path.parent)
+yaml_path.write_text(yaml.dump(config))
+print("data.yaml mis à jour :", config['path'])
 ```
 
-## 6. Test court Mask R-CNN
-
-```bash
-!python entrainer.py \
-  --architecture maskrcnn_resnet50_fpn_v2 \
-  --donnees "$DATASET" \
-  --sorties /content/drive/MyDrive/detection_fissures_test_maskrcnn \
-  --epoques 1 \
-  --lot 1 \
-  --lr 3e-4 \
-  --taille-image 384 \
-  --dispositif cuda
-```
-
-## 7. Entraîner Mask R-CNN
-
-```bash
-!python entrainer.py \
-  --architecture maskrcnn_resnet50_fpn_v2 \
-  --donnees "$DATASET" \
-  --sorties "$SORTIES_MASK" \
-  --epoques 50 \
-  --lot 2 \
-  --lr 3e-4 \
-  --taille-image 384 \
-  --dispositif cuda
-```
-
-Si Colab donne `CUDA out of memory`, relance avec `--lot 1`.
-
-## 8. Reprendre Mask R-CNN après coupure
-
-```bash
-!python entrainer.py \
-  --architecture maskrcnn_resnet50_fpn_v2 \
-  --donnees "$DATASET" \
-  --sorties "$SORTIES_MASK" \
-  --epoques 100 \
-  --lot 2 \
-  --lr 3e-4 \
-  --taille-image 384 \
-  --seuil-score 0.05 \
-  --dispositif cuda \
-  --resume "$SORTIES_MASK/modeles/dernier_modele.pth"
-```
-
-## 9. Entraîner YOLO26-seg
+## 6. Entraîner YOLO11m (recommandé)
 
 ```bash
 !python entrainer_yolo.py \
-  --donnees "$DATASET" \
-  --sorties "$SORTIES_YOLO" \
-  --modele yolo26s-seg.pt \
-  --epoques 50 \
-  --lot 8 \
-  --lr 1e-3 \
-  --weight-decay 5e-4 \
-  --patience 25 \
-  --taille-image 384 \
-  --mask-ratio 2 \
-  --save-period 5 \
-  --dispositif cuda
+  --yaml          "$DATASET_YAML" \
+  --modele        yolo11m-seg.pt \
+  --taille-image  640 \
+  --epoques       150 \
+  --lot           8 \
+  --lr            0.01 \
+  --lrf           0.01 \
+  --patience      50 \
+  --warmup-epochs 5.0 \
+  --close-mosaic  20 \
+  --mask-ratio    1 \
+  --mosaic        0.4 \
+  --copy-paste    0.3 \
+  --degrees       10.0 \
+  --flipud        0.1 \
+  --dispositif    auto \
+  --nom           yolo11m_fissures \
+  --sorties       "$SORTIES_YOLO"
 ```
 
-Si la mémoire manque, utilise `--lot 4` ou `--lot 2`.
-Le script affiche un résumé du dataset YOLO converti, la configuration
-d'entraînement, les métriques par époque quand Ultralytics les fournit, puis les
-métriques validation/test finales avec précision, rappel, F1 score et mAP.
-
-Pour reprendre après une coupure Colab :
+**GPU < 6 Go** — utiliser YOLO11s avec lot=16 :
 
 ```bash
 !python entrainer_yolo.py \
-  --donnees "$DATASET" \
-  --sorties "$SORTIES_YOLO" \
-  --resume "$SORTIES_YOLO/entrainements/yolo_seg_fissures/weights/last.pt" \
-  --dispositif cuda
+  --yaml          "$DATASET_YAML" \
+  --modele        yolo11s-seg.pt \
+  --taille-image  640 \
+  --epoques       150 \
+  --lot           16 \
+  --lr            0.01 \
+  --patience      50 \
+  --mask-ratio    1 \
+  --mosaic        0.4 \
+  --copy-paste    0.3 \
+  --nom           yolo11s_fissures \
+  --sorties       "$SORTIES_YOLO"
 ```
 
-## 10. Analyser des images après entraînement
-
-Les images à analyser peuvent être dans n'importe quel dossier Drive. Elles ne
-sont pas déplacées : le script crée des copies annotées dans `ANALYSES`.
+## 7. Reprendre après déconnexion
 
 ```bash
-!python analyser.py \
-  --modele "$SORTIES_YOLO/entrainements/yolo_seg_fissures/weights/best.pt" \
-  --images /content/drive/MyDrive/images_a_tester \
-  --dossier-sortie "$ANALYSES" \
-  --dispositif cuda
+LAST_PT = "$SORTIES_YOLO/entrainements/yolo11m_fissures/weights/last.pt"
+
+!python entrainer_yolo.py --resume "$LAST_PT"
 ```
 
-Pour Mask R-CNN :
+## 8. Analyser des images après entraînement
 
 ```bash
+BEST_PT = "$SORTIES_YOLO/entrainements/yolo11m_fissures/weights/best.pt"
+
 !python analyser.py \
-  --backend maskrcnn \
-  --modele "$SORTIES_MASK/modeles/meilleur_modele.pth" \
-  --images /content/drive/MyDrive/images_a_tester \
-  --dossier-sortie "$ANALYSES" \
-  --dispositif cuda
+  --modele   "$BEST_PT" \
+  --backend  yolo \
+  --images   /content/drive/MyDrive/dataset/images/test/ \
+  --seuil    0.25
 ```
 
-## 11. Fichiers à récupérer
+## 9. Récupérer les résultats
 
-Mask R-CNN :
+```python
+from google.colab import files
 
-```text
-$SORTIES_MASK/modeles/meilleur_modele.pth
-$SORTIES_MASK/modeles/dernier_modele.pth
-$SORTIES_MASK/journaux/historique_entrainement.json
+# Télécharger les poids
+files.download(f"{SORTIES_YOLO}/entrainements/yolo11m_fissures/weights/best.pt")
 ```
 
-YOLO-seg :
+## Notes
 
-```text
-$SORTIES_YOLO/dataset_yolo/                         # dataset converti YOLO
-$SORTIES_YOLO/entrainements/
-$SORTIES_YOLO/entrainements/yolo_seg_fissures/weights/best.pt
-$SORTIES_YOLO/entrainements/yolo_seg_fissures/weights/last.pt
-$SORTIES_YOLO/evaluations/
-```
-
-Analyse :
-
-```text
-$ANALYSES/yolo/rapport_analyse.json
-$ANALYSES/yolo/images_annotees/
-$ANALYSES/maskrcnn/rapport_analyse.json             # si --backend maskrcnn
-$ANALYSES/maskrcnn/images_annotees/
-```
+- Colab déconnecte après ~12h d'inactivité. Utiliser `--resume` pour reprendre.
+- Sauvegarder les poids sur Drive (en définissant `--sorties` sur un dossier Drive).
+- `data.yaml` doit avoir `path:` pointant vers le dossier racine du dataset.

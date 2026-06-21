@@ -18,15 +18,94 @@ def afficher_commandes() -> None:
   COMMANDES DU PROJET
 ════════════════════════════════════════════════════════════════════════
 
-  ── 0. PRÉPARER LE DATASET ──────────────────────────────────────────
+  DATASET : Format YOLOv11 natif Roboflow — 640×640px — 3794 images — 1 classe (crack)
+  Structure attendue :
+    dataset/
+    ├── data.yaml
+    ├── images/  train/  valid/  test/
+    └── labels/  train/  valid/  test/
 
-  Ajouter des images de murs sains (sans fissures) au dataset Roboflow :
+  ── 1. ENTRAÎNER YOLO11-SEG (recommandé) ─────────────────────────────
 
-    python utilitaires/ajouter_images_saines.py \\
-      --images-saines murs_sains/ \\
-      --dataset       dataset/
+  ┌─ YOLO11 Medium (précis — GPU ≥ 6 Go, défaut pour 3794 images) ─────┐
 
-  ── 1. ENTRAÎNER MASK R-CNN ─────────────────────────────────────────
+    python entrainer_yolo.py \\
+      --yaml             dataset/data.yaml \\
+      --modele           yolo11m-seg.pt \\
+      --taille-image     640 \\
+      --epoques          150 \\
+      --lot              8 \\
+      --lr               0.01 \\
+      --lrf              0.01 \\
+      --weight-decay     0.0005 \\
+      --patience         50 \\
+      --warmup-epochs    5.0 \\
+      --close-mosaic     20 \\
+      --mask-ratio       1 \\
+      --mosaic           0.4 \\
+      --copy-paste       0.3 \\
+      --degrees          10.0 \\
+      --flipud           0.1 \\
+      --dispositif       auto \\
+      --nom              yolo11m_fissures \\
+      --sorties          sorties_yolo
+
+  └────────────────────────────────────────────────────────────────────┘
+
+  ┌─ YOLO11 Small (rapide — GPU < 6 Go ou test rapide) ────────────────┐
+
+    python entrainer_yolo.py \\
+      --yaml             dataset/data.yaml \\
+      --modele           yolo11s-seg.pt \\
+      --taille-image     640 \\
+      --epoques          150 \\
+      --lot              16 \\
+      --lr               0.01 \\
+      --lrf              0.01 \\
+      --patience         50 \\
+      --warmup-epochs    5.0 \\
+      --close-mosaic     20 \\
+      --mask-ratio       1 \\
+      --mosaic           0.4 \\
+      --copy-paste       0.3 \\
+      --dispositif       auto \\
+      --nom              yolo11s_fissures \\
+      --sorties          sorties_yolo
+
+  └────────────────────────────────────────────────────────────────────┘
+
+  ── 2. ENTRAÎNER YOLO26-SEG ─────────────────────────────────────────
+
+  ┌─ YOLO26 Medium (génération 2026 — GPU ≥ 6 Go) ─────────────────────┐
+
+    python entrainer_yolo.py \\
+      --yaml             dataset/data.yaml \\
+      --modele           yolo26m-seg.pt \\
+      --taille-image     640 \\
+      --epoques          150 \\
+      --lot              8 \\
+      --lr               0.01 \\
+      --lrf              0.01 \\
+      --patience         50 \\
+      --warmup-epochs    5.0 \\
+      --close-mosaic     20 \\
+      --mask-ratio       1 \\
+      --mosaic           0.4 \\
+      --copy-paste       0.3 \\
+      --dispositif       auto \\
+      --nom              yolo26m_fissures \\
+      --sorties          sorties_yolo
+
+  └────────────────────────────────────────────────────────────────────┘
+
+  Reprendre un entraînement YOLO interrompu :
+    python entrainer_yolo.py \\
+      --resume sorties_yolo/entrainements/<nom>/weights/last.pt
+
+  ── 3. ENTRAÎNER MASK R-CNN ─────────────────────────────────────────
+
+  Note : Mask R-CNN attend un dataset au format COCO (_annotations.coco.json).
+  Pour un dataset YOLO natif, utiliser YOLO-seg (section 1-2 ci-dessus).
 
   CPU (lot=2, ~12-48h selon dataset) :
     python entrainer.py \\
@@ -43,7 +122,7 @@ def afficher_commandes() -> None:
       --sorties            sorties \\
       --decroissance-poids 0.0005
 
-  GPU (lot=4-8, ~2-4h) — même commande + ajuster --lot :
+  GPU (lot=4-8, ~2-6h) :
     python entrainer.py \\
       --donnees            dataset/ \\
       --epoques            100 \\
@@ -57,148 +136,38 @@ def afficher_commandes() -> None:
     python entrainer.py [mêmes paramètres] \\
       --resume sorties/modeles/dernier_modele.pth
 
-  ── 2. ENTRAÎNER YOLO11-SEG ─────────────────────────────────────────
-
-  ┌─ YOLO11 Medium (défaut — précis, dataset ≥ 1000 images, GPU ≥ 6 Go) ─┐
-
-    python entrainer_yolo.py \\
-      --donnees          dataset/ \\
-      --modele           yolo11m-seg.pt \\
-      --taille-image     640 \\
-      --epoques          100 \\
-      --lot              8 \\
-      --lr               0.001 \\
-      --lrf              0.01 \\
-      --weight-decay     0.0005 \\
-      --patience         50 \\
-      --warmup-epochs    3.0 \\
-      --close-mosaic     15 \\
-      --mask-ratio       2 \\
-      --mosaic           0.3 \\
-      --dispositif       auto \\
-      --nom              yolo11m_fissures \\
-      --sorties          sorties_yolo
-
-  └────────────────────────────────────────────────────────────────────┘
-
-  ┌─ YOLO11 Small (rapide — dataset < 1000 images ou GPU < 6 Go) ──────┐
-
-    python entrainer_yolo.py \\
-      --donnees          dataset/ \\
-      --modele           yolo11s-seg.pt \\
-      --taille-image     640 \\
-      --epoques          100 \\
-      --lot              16 \\
-      --lr               0.001 \\
-      --lrf              0.01 \\
-      --weight-decay     0.0005 \\
-      --patience         50 \\
-      --warmup-epochs    3.0 \\
-      --close-mosaic     15 \\
-      --mask-ratio       2 \\
-      --mosaic           0.3 \\
-      --dispositif       auto \\
-      --nom              yolo11s_fissures \\
-      --sorties          sorties_yolo
-
-  └────────────────────────────────────────────────────────────────────┘
-
-  ── 3. ENTRAÎNER YOLO26-SEG ─────────────────────────────────────────
-
-  ┌─ YOLO26 Medium (précis — génération 2026, GPU ≥ 6 Go) ─────────────┐
-
-    python entrainer_yolo.py \\
-      --donnees          dataset/ \\
-      --modele           yolo26m-seg.pt \\
-      --taille-image     640 \\
-      --epoques          100 \\
-      --lot              8 \\
-      --lr               0.001 \\
-      --lrf              0.01 \\
-      --weight-decay     0.0005 \\
-      --patience         50 \\
-      --warmup-epochs    3.0 \\
-      --close-mosaic     15 \\
-      --mask-ratio       2 \\
-      --mosaic           0.3 \\
-      --dispositif       auto \\
-      --nom              yolo26m_fissures \\
-      --sorties          sorties_yolo
-
-  └────────────────────────────────────────────────────────────────────┘
-
-  ┌─ YOLO26 Small (rapide — génération 2026, GPU < 6 Go) ──────────────┐
-
-    python entrainer_yolo.py \\
-      --donnees          dataset/ \\
-      --modele           yolo26s-seg.pt \\
-      --taille-image     640 \\
-      --epoques          100 \\
-      --lot              16 \\
-      --lr               0.001 \\
-      --lrf              0.01 \\
-      --weight-decay     0.0005 \\
-      --patience         50 \\
-      --warmup-epochs    3.0 \\
-      --close-mosaic     15 \\
-      --mask-ratio       2 \\
-      --mosaic           0.3 \\
-      --dispositif       auto \\
-      --nom              yolo26s_fissures \\
-      --sorties          sorties_yolo
-
-  └────────────────────────────────────────────────────────────────────┘
-
-  Reprendre un entraînement YOLO interrompu :
-    python entrainer_yolo.py \\
-      --resume sorties_yolo/entrainements/<nom>/weights/last.pt
-
   ── 4. ANALYSER LES IMAGES ──────────────────────────────────────────
 
-  Avec Mask R-CNN :
-    python analyser.py \\
-      --modele   sorties/modeles/meilleur_modele.pth \\
-      --backend  maskrcnn \\
-      --images   dataset/test/ \\
-      --seuil    0.40
-
-  Avec YOLO11 Medium :
+  Avec YOLO11 Medium (après entraînement) :
     python analyser.py \\
       --modele   sorties_yolo/entrainements/yolo11m_fissures/weights/best.pt \\
       --backend  yolo \\
-      --images   dataset/test/ \\
+      --images   dataset/images/test/ \\
       --seuil    0.25
 
   Avec YOLO11 Small :
     python analyser.py \\
       --modele   sorties_yolo/entrainements/yolo11s_fissures/weights/best.pt \\
       --backend  yolo \\
-      --images   dataset/test/ \\
+      --images   dataset/images/test/ \\
       --seuil    0.25
 
-  Avec YOLO26 Medium :
+  Avec Mask R-CNN :
     python analyser.py \\
-      --modele   sorties_yolo/entrainements/yolo26m_fissures/weights/best.pt \\
-      --backend  yolo \\
-      --images   dataset/test/ \\
-      --seuil    0.25
-
-  Avec YOLO26 Small :
-    python analyser.py \\
-      --modele   sorties_yolo/entrainements/yolo26s_fissures/weights/best.pt \\
-      --backend  yolo \\
-      --images   dataset/test/ \\
-      --seuil    0.25
+      --modele   sorties/modeles/meilleur_modele.pth \\
+      --backend  maskrcnn \\
+      --images   dataset/images/test/ \\
+      --seuil    0.40
 
 ════════════════════════════════════════════════════════════════════════
   GUIDE DE CHOIX DU MODÈLE
 ════════════════════════════════════════════════════════════════════════
 
-  Dataset < 1000 images  → YOLO11s  ou  YOLO26s  (Small)
   Dataset ≥ 1000 images  → YOLO11m  ou  YOLO26m  (Medium, défaut)
-  Précision max          → Mask R-CNN (plus lent à entraîner)
-  GPU < 6 Go / CPU       → Small obligatoire (lot réduit à 8 ou moins)
+  GPU < 6 Go / CPU       → YOLO11s  ou  YOLO26s  (Small, lot=16)
+  Précision max          → Mask R-CNN (nécessite format COCO)
   YOLO11 vs YOLO26       → YOLO26 si ultralytics ≥ 8.x supporte yolo26
+  Dataset natif Roboflow → utiliser --yaml dataset/data.yaml (pas de conversion)
 
 ════════════════════════════════════════════════════════════════════════
 """)
