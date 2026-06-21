@@ -1,1 +1,0 @@
-- [Dataset Roboflow YOLOv11](dataset-roboflow.md) — dataset natif YOLO (NOT COCO) : utiliser --yaml, pas --donnees

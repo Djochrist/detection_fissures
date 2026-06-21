@@ -35,3 +35,12 @@ Thumbs.db
 
 # Local Colab guide
 COLAB_TRAINING_GUIDE.md
+
+# Replit (local config — not part of the project)
+.replit
+replit.nix
+replit.md
+.agents/
+.local/
+.upm/
+.config/
