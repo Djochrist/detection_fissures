@@ -123,12 +123,7 @@ ensuite (voir section 11).
   --weight-decay  0.0005 \
   --patience      50 \
   --warmup-epochs 5.0 \
-  --close-mosaic  20 \
   --mask-ratio    1 \
-  --mosaic        0.4 \
-  --copy-paste    0.3 \
-  --degrees       10.0 \
-  --flipud        0.1 \
   --dispositif    auto \
   --nom           yolo11m_fissures \
   --sorties       "$SORTIES_YOLO"
@@ -148,12 +143,7 @@ ensuite (voir section 11).
   --weight-decay  0.0005 \
   --patience      50 \
   --warmup-epochs 5.0 \
-  --close-mosaic  20 \
   --mask-ratio    1 \
-  --mosaic        0.4 \
-  --copy-paste    0.3 \
-  --degrees       10.0 \
-  --flipud        0.1 \
   --dispositif    auto \
   --nom           yolo11s_fissures \
   --sorties       "$SORTIES_YOLO"
@@ -173,12 +163,7 @@ ensuite (voir section 11).
   --weight-decay  0.0005 \
   --patience      50 \
   --warmup-epochs 5.0 \
-  --close-mosaic  20 \
   --mask-ratio    1 \
-  --mosaic        0.4 \
-  --copy-paste    0.3 \
-  --degrees       10.0 \
-  --flipud        0.1 \
   --dispositif    auto \
   --nom           yolo26m_fissures \
   --sorties       "$SORTIES_YOLO"
@@ -198,12 +183,7 @@ ensuite (voir section 11).
   --weight-decay  0.0005 \
   --patience      50 \
   --warmup-epochs 5.0 \
-  --close-mosaic  20 \
   --mask-ratio    1 \
-  --mosaic        0.4 \
-  --copy-paste    0.3 \
-  --degrees       10.0 \
-  --flipud        0.1 \
   --dispositif    auto \
   --nom           yolo26s_fissures \
   --sorties       "$SORTIES_YOLO"
@@ -379,21 +359,27 @@ Le modèle ne détecte pas assez bien. À essayer, dans l'ordre :
 5. **Vérifier les annotations** — un mAP très bas vient souvent d'un dataset mal
    étiqueté, pas du modèle. Inspecte quelques images annotées.
 
+> ⚠️ **Augmentation désactivée.** Le dataset Roboflow est déjà pré-augmenté (5×)
+> et l'entraînement n'applique plus aucune augmentation à la volée. Les leviers
+> ci-dessous portent donc sur le modèle, les époques, le seuil et les **données**
+> (ajouter des images réelles ou des **murs sains**), pas sur des réglages d'augmentation.
+
 ### 11.2 — Le rappel est bas (le modèle rate des fissures)
 
 Beaucoup de fissures non détectées (faux négatifs) :
 
-- **Augmente `--copy-paste`** à `0.4`–`0.5` (crée plus d'exemples de fissures).
 - **Réduis le seuil à l'analyse** : `--seuil 0.15` au lieu de 0.25.
-- **Augmente `--epoques`** et la taille d'image (voir 11.1).
-- **Active plus d'augmentation géométrique** : `--degrees 15`, `--flipud 0.2`.
+- **Entraîne plus longtemps** : `--epoques 250` et augmente la taille d'image (voir 11.1).
+- **Modèle plus gros** : `yolo11m-seg.pt` → `yolo11l-seg.pt`.
+- **Ajoute des images de fissures** réelles et variées au dataset.
 
 ### 11.3 — La précision est basse (trop de faux positifs)
 
 Le modèle voit des fissures là où il n'y en a pas :
 
+- **Ajoute plus de murs sains** (images sans fissure, label vide) au dataset : c'est
+  le meilleur moyen d'apprendre au modèle à ne PAS halluciner de fissures.
 - **Augmente le seuil à l'analyse** : `--seuil 0.35` ou `0.4`.
-- **Réduis l'augmentation agressive** : `--mosaic 0.2`, `--copy-paste 0.2`.
 - **Entraîne un peu plus longtemps** pour mieux discriminer.
 
 ### 11.4 — Surapprentissage (train bon, validation mauvaise)
@@ -401,8 +387,7 @@ Le modèle voit des fissures là où il n'y en a pas :
 La courbe de perte d'entraînement descend mais la validation stagne/remonte :
 
 - **Augmente la régularisation** : `--weight-decay 0.001`.
-- **Plus d'augmentation** : `--mosaic 0.5`, `--hsv-v 0.5`, `--translate 0.2`,
-  `--scale 0.6`.
+- **Ajoute plus de données** variées (images réelles + murs sains).
 - **Réduis `--epoques`** ou laisse l'early stopping agir (`--patience 30`).
 - **Modèle plus petit** : repasse de `m` à `s`.
 
@@ -411,7 +396,6 @@ La courbe de perte d'entraînement descend mais la validation stagne/remonte :
 - **Modèle plus gros** (`m` → `l`).
 - **Plus d'époques** (`--epoques 300`).
 - **Augmente le LR** : `--lr 0.02` (puis surveille que la perte ne diverge pas).
-- **Réduis l'augmentation** si elle est trop forte (`--mosaic 0.2`).
 
 ### 11.6 — La perte diverge / devient NaN
 

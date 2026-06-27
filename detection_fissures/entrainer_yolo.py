@@ -103,75 +103,6 @@ def analyser_arguments() -> argparse.Namespace:
         help="Désactive le scheduler cosinus",
     )
     analyseur.add_argument(
-        "--close-mosaic",
-        type=int,
-        default=20,
-        help="Désactive mosaic sur les N dernières époques",
-    )
-    analyseur.add_argument(
-        "--mosaic",
-        type=float,
-        default=0.4,
-        help=(
-            "Probabilité mosaic. Gardée modérée car le dataset Roboflow "
-            "est déjà augmenté 5× (flip, rotation, luminosité, exposition)."
-        ),
-    )
-    analyseur.add_argument(
-        "--copy-paste",
-        type=float,
-        default=0.3,
-        help="Probabilité copy-paste segmentation (utile pour les fissures rares)",
-    )
-    analyseur.add_argument(
-        "--degrees",
-        type=float,
-        default=10.0,
-        help="Rotation aléatoire maximale en degrés (augmentation)",
-    )
-    analyseur.add_argument(
-        "--flipud",
-        type=float,
-        default=0.1,
-        help="Probabilité de retournement vertical",
-    )
-    analyseur.add_argument(
-        "--hsv-h",
-        type=float,
-        default=0.015,
-        help="Variation HSV teinte (augmentation couleur)",
-    )
-    analyseur.add_argument(
-        "--hsv-s",
-        type=float,
-        default=0.7,
-        help="Variation HSV saturation",
-    )
-    analyseur.add_argument(
-        "--hsv-v",
-        type=float,
-        default=0.4,
-        help="Variation HSV valeur (luminosité)",
-    )
-    analyseur.add_argument(
-        "--translate",
-        type=float,
-        default=0.1,
-        help="Translation aléatoire (fraction de la taille de l'image)",
-    )
-    analyseur.add_argument(
-        "--scale",
-        type=float,
-        default=0.5,
-        help="Mise à l'échelle aléatoire",
-    )
-    analyseur.add_argument(
-        "--multi-scale",
-        type=float,
-        default=0.0,
-        help="Variation aléatoire de imgsz par batch. 0 désactive.",
-    )
-    analyseur.add_argument(
         "--mask-ratio",
         type=int,
         default=1,
@@ -282,10 +213,6 @@ def valider_arguments_yolo(args: argparse.Namespace) -> None:
         raise ValueError("--fraction doit être dans l'intervalle ]0, 1].")
     if args.mask_ratio < 1:
         raise ValueError("--mask-ratio doit être >= 1.")
-    if not 0.0 <= args.mosaic <= 1.0:
-        raise ValueError("--mosaic doit être entre 0 et 1.")
-    if not 0.0 <= args.copy_paste <= 1.0:
-        raise ValueError("--copy-paste doit être entre 0 et 1.")
 
 
 def _cache_ultralytics(cache: str) -> bool | str:
@@ -360,9 +287,11 @@ def afficher_resume_dataset_yolo(racine_dataset_yolo: Path) -> None:
             if chemin.is_file() or chemin.is_symlink()
         )
         images_annotees, instances = _compter_lignes_labels(dossier_labels)
+        murs_sains = max(0, nb_images - images_annotees)
         print(
             f"  {split:<5} : {nb_images:5d} image(s) | "
-            f"{images_annotees:5d} avec fissure(s) | {instances:6d} instance(s)"
+            f"{images_annotees:5d} avec fissure(s) | "
+            f"{murs_sains:5d} mur(s) sain(s) | {instances:6d} instance(s)"
         )
     print("═" * 55 + "\n")
 
@@ -496,17 +425,27 @@ def construire_arguments_train_yolo(
         "val": True,
         "save_period": args.save_period,
         "cos_lr": args.cos_lr,
-        "close_mosaic": args.close_mosaic,
-        "mosaic": args.mosaic,
-        "copy_paste": args.copy_paste,
-        "degrees": args.degrees,
-        "flipud": args.flipud,
-        "hsv_h": args.hsv_h,
-        "hsv_s": args.hsv_s,
-        "hsv_v": args.hsv_v,
-        "translate": args.translate,
-        "scale": args.scale,
-        "multi_scale": args.multi_scale,
+        # Augmentations entièrement désactivées : le dataset Roboflow est déjà
+        # pré-augmenté (5×) et les murs sains servent d'exemples négatifs bruts.
+        "hsv_h": 0.0,
+        "hsv_s": 0.0,
+        "hsv_v": 0.0,
+        "degrees": 0.0,
+        "translate": 0.0,
+        "scale": 0.0,
+        "shear": 0.0,
+        "perspective": 0.0,
+        "flipud": 0.0,
+        "fliplr": 0.0,
+        "bgr": 0.0,
+        "mosaic": 0.0,
+        "close_mosaic": 0,
+        "mixup": 0.0,
+        "cutmix": 0.0,
+        "copy_paste": 0.0,
+        "erasing": 0.0,
+        "auto_augment": None,
+        "multi_scale": False,
         "mask_ratio": args.mask_ratio,
         "overlap_mask": args.overlap_mask,
         "single_cls": args.classe_unique,
@@ -532,11 +471,7 @@ def afficher_configuration_yolo(args: argparse.Namespace, checkpoint_resume: Pat
         ("Warmup", args.warmup_epochs),
         ("Patience", args.patience),
         ("cos_lr", args.cos_lr),
-        ("Mosaic", args.mosaic),
-        ("Close mosaic", args.close_mosaic),
-        ("Copy-paste", args.copy_paste),
-        ("Degrees", args.degrees),
-        ("Flip vertical", args.flipud),
+        ("Augmentation", "désactivée"),
         ("Mask ratio", args.mask_ratio),
         ("Classe unique", args.classe_unique),
         ("Cache", args.cache),

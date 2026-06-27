@@ -90,12 +90,7 @@ python entrainer_yolo.py \
   --lrf           0.01 \
   --patience      50 \
   --warmup-epochs 5.0 \
-  --close-mosaic  20 \
   --mask-ratio    1 \
-  --mosaic        0.4 \
-  --copy-paste    0.3 \
-  --degrees       10.0 \
-  --flipud        0.1 \
   --nom           yolo11m_fissures \
   --sorties       sorties_yolo
 ```
