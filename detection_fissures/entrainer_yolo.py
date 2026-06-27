@@ -80,7 +80,7 @@ def analyser_arguments() -> argparse.Namespace:
         ),
     )
     analyseur.add_argument("--epoques", type=int, default=150)
-    analyseur.add_argument("--lot", type=int, default=8, help="Batch size")
+    analyseur.add_argument("--lot", type=int, default=32, help="Batch size (32 = gros GPU ; baisser si CUDA out of memory)")
     analyseur.add_argument(
         "--taille-image",
         type=int,

@@ -41,7 +41,7 @@ python entrainer_yolo.py \
   --modele        yolo11m-seg.pt \
   --taille-image  640 \
   --epoques       150 \
-  --lot           8 \
+  --lot           32 \
   --lr            0.01 \
   --lrf           0.01 \
   --weight-decay  0.0001 \

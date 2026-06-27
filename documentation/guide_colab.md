@@ -126,7 +126,7 @@ ensuite (voir section 11).
   --modele        yolo11m-seg.pt \
   --taille-image  640 \
   --epoques       150 \
-  --lot           8 \
+  --lot           32 \
   --lr            0.01 \
   --lrf           0.01 \
   --weight-decay  0.0001 \
@@ -137,6 +137,10 @@ ensuite (voir section 11).
   --nom           yolo11m_fissures \
   --sorties       "$SORTIES_YOLO"
 ```
+
+> ⚡ **`--lot 32`** accélère l'entraînement mais demande beaucoup de mémoire GPU
+> (≈ 16 Go). Sur un GPU plus petit (T4 gratuit Colab ≈ 15 Go) tu peux voir
+> `CUDA out of memory` : dans ce cas baisse à `--lot 16`, puis `8`, puis `4`.
 
 > 🧱 **`--murs-sains`** intègre automatiquement tes murs sains comme exemples
 > négatifs (label vide, 1 classe). Ajoute simplement cette ligne à n'importe
