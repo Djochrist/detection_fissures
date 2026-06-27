@@ -117,7 +117,7 @@ uv run python entrainer_yolo.py \
   --epoques 50 \
   --lot 8 \
   --lr 1e-3 \
-  --weight-decay 5e-4 \
+  --weight-decay 1e-4 \
   --patience 25 \
   --taille-image 384 \
   --mask-ratio 2 \

@@ -129,7 +129,7 @@ ensuite (voir section 11).
   --lot           8 \
   --lr            0.01 \
   --lrf           0.01 \
-  --weight-decay  0.0005 \
+  --weight-decay  0.0001 \
   --patience      50 \
   --warmup-epochs 5.0 \
   --mask-ratio    1 \
@@ -154,7 +154,7 @@ ensuite (voir section 11).
   --lot           16 \
   --lr            0.01 \
   --lrf           0.01 \
-  --weight-decay  0.0005 \
+  --weight-decay  0.0001 \
   --patience      50 \
   --warmup-epochs 5.0 \
   --mask-ratio    1 \
@@ -174,7 +174,7 @@ ensuite (voir section 11).
   --lot           8 \
   --lr            0.01 \
   --lrf           0.01 \
-  --weight-decay  0.0005 \
+  --weight-decay  0.0001 \
   --patience      50 \
   --warmup-epochs 5.0 \
   --mask-ratio    1 \
@@ -194,7 +194,7 @@ ensuite (voir section 11).
   --lot           16 \
   --lr            0.01 \
   --lrf           0.01 \
-  --weight-decay  0.0005 \
+  --weight-decay  0.0001 \
   --patience      50 \
   --warmup-epochs 5.0 \
   --mask-ratio    1 \
@@ -225,7 +225,7 @@ DATASET_COCO = "/content/drive/MyDrive/dataset_coco"
   --epoques       100 \
   --lot           4 \
   --lr            0.0001 \
-  --weight-decay  0.0005 \
+  --weight-decay  0.0001 \
   --patience      20 \
   --taille-image  640 \
   --seuil-score   0.05 \

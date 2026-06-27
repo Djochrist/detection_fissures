@@ -97,7 +97,7 @@ Si ce test passe, lance l'entraînement complet.
   --lot           8 \
   --lr            0.01 \
   --lrf           0.01 \
-  --weight-decay  0.0005 \
+  --weight-decay  0.0001 \
   --patience      50 \
   --warmup-epochs 5.0 \
   --mask-ratio    1 \

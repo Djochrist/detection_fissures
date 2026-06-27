@@ -92,8 +92,8 @@ def analyser_arguments() -> argparse.Namespace:
     analyseur.add_argument(
         "--weight-decay",
         type=float,
-        default=5e-4,
-        help="Décroissance des poids Ultralytics",
+        default=1e-4,
+        help="Décroissance des poids Ultralytics (frein léger : 1e-4)",
     )
     analyseur.add_argument("--patience", type=int, default=50, help="Patience early stopping")
     analyseur.add_argument("--workers", type=int, default=2)
