@@ -29,25 +29,33 @@ from google.colab import drive
 drive.mount("/content/drive")
 ```
 
-Place ton dataset YOLO dans Drive avec cette structure :
+Place tes dossiers dans Drive **côte à côte** (le code se charge de tout
+combiner, tu n'as rien à fusionner à la main) :
 
 ```text
-/content/drive/MyDrive/dataset/
-├── data.yaml
-├── images/
-│   ├── train/   (≈3160 images)
-│   ├── valid/   (≈476 images)
-│   └── test/    (≈158 images)
-└── labels/
-    ├── train/
-    ├── valid/
-    └── test/
+/content/drive/MyDrive/
+├── dataset/                      ← dataset Roboflow (images AVEC fissures)
+│   ├── data.yaml
+│   ├── images/{train,valid,test}/
+│   └── labels/{train,valid,test}/
+├── murs_sains/                   ← images SANS fissure (exemples négatifs)
+└── murs_sains_masques_noirs/     ← (non utilisé par YOLO — voir note ci-dessous)
 ```
+
+Le dossier `murs_sains/` peut être **plat** (toutes les images dedans) ou contenir
+des sous-dossiers `train/valid/test`. Dans les deux cas, le code s'adapte
+automatiquement quand tu passes `--murs-sains` (section 6).
+
+> ℹ️ **Les masques noirs ne sont pas nécessaires.** Pour YOLO, un mur sain se
+> signale par un **fichier de label vide** — c'est exactement ce que le code crée
+> automatiquement. Tu peux garder `murs_sains_masques_noirs/` sur Drive, il sera
+> simplement ignoré à l'entraînement. On reste à **1 seule classe** (`crack`).
 
 Définis les chemins (variables réutilisées partout ensuite) :
 
 ```python
 DATASET_YAML = "/content/drive/MyDrive/dataset/data.yaml"
+MURS_SAINS   = "/content/drive/MyDrive/murs_sains"
 SORTIES_YOLO = "/content/drive/MyDrive/sorties_yolo"
 SORTIES_MASK = "/content/drive/MyDrive/sorties_maskrcnn"
 ```
@@ -114,6 +122,7 @@ ensuite (voir section 11).
 ```bash
 !python entrainer_yolo.py \
   --yaml          "$DATASET_YAML" \
+  --murs-sains    "$MURS_SAINS" \
   --modele        yolo11m-seg.pt \
   --taille-image  640 \
   --epoques       150 \
@@ -128,6 +137,11 @@ ensuite (voir section 11).
   --nom           yolo11m_fissures \
   --sorties       "$SORTIES_YOLO"
 ```
+
+> 🧱 **`--murs-sains`** intègre automatiquement tes murs sains comme exemples
+> négatifs (label vide, 1 classe). Ajoute simplement cette ligne à n'importe
+> laquelle des variantes ci-dessous. Si tu n'as pas de murs sains, retire-la.
+> Au lancement, le récapitulatif affiche le nombre de « mur(s) sain(s) » par split.
 
 ### 6.2 — YOLO11 Small (GPU < 6 Go ou test rapide)
 

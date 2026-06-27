@@ -12,6 +12,8 @@ YOLO11-seg est recommandé. YOLO26-seg est aussi supporté.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +48,18 @@ def analyser_arguments() -> argparse.Namespace:
         help=(
             "Répertoire racine du dataset. Si data.yaml y est présent, le format "
             "YOLO natif est détecté automatiquement. Sinon, conversion COCO."
+        ),
+    )
+    analyseur.add_argument(
+        "--murs-sains",
+        type=str,
+        default=None,
+        help=(
+            "Dossier d'images de murs sains (sans fissure) à intégrer comme "
+            "exemples négatifs. Le code les copie dans le dataset avec un label "
+            "VIDE (reste 1 classe 'crack'). Les sous-dossiers train/valid/test "
+            "sont respectés ; sinon répartition proportionnelle aux splits "
+            "existants. Idempotent. Exemple : --murs-sains murs_sains"
         ),
     )
     analyseur.add_argument(
@@ -296,6 +310,153 @@ def afficher_resume_dataset_yolo(racine_dataset_yolo: Path) -> None:
     print("═" * 55 + "\n")
 
 
+_EXTENSIONS_IMAGE = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
+
+
+def _collecter_images(dossier: Path) -> list[Path]:
+    """Liste (récursivement) toutes les images d'un dossier."""
+    return sorted(
+        chemin
+        for chemin in dossier.rglob("*")
+        if chemin.is_file() and chemin.suffix.lower() in _EXTENSIONS_IMAGE
+    )
+
+
+def _split_depuis_chemin(chemin: Path, racine: Path) -> str | None:
+    """Déduit le split (train/valid/test) depuis un sous-dossier nommé, sinon None."""
+    for element in chemin.relative_to(racine).parts:
+        token = element.lower()
+        if token in ("train", "entrainement", "entrainements"):
+            return "train"
+        if token in ("valid", "val", "validation"):
+            return "valid"
+        if token == "test":
+            return "test"
+    return None
+
+
+def _compter_images_split(racine_dataset: Path, split: str) -> int:
+    """Compte les images d'un split du dataset YOLO."""
+    dossier = racine_dataset / "images" / split
+    if not dossier.exists():
+        return 0
+    return sum(
+        1 for chemin in dossier.iterdir() if chemin.is_file() or chemin.is_symlink()
+    )
+
+
+def _repartir_murs_sains(
+    images: list[Path], racine_dataset: Path
+) -> list[tuple[Path, str]]:
+    """Répartit les murs sains proportionnellement aux splits existants."""
+    comptes = {
+        split: _compter_images_split(racine_dataset, split)
+        for split in ("train", "valid", "test")
+    }
+    total = sum(comptes.values())
+    if total == 0:
+        return [(chemin, "train") for chemin in images]
+
+    nombre = len(images)
+    n_valid = round(nombre * comptes["valid"] / total)
+    n_test = round(nombre * comptes["test"] / total)
+    n_train = nombre - n_valid - n_test
+
+    assignations: list[tuple[Path, str]] = []
+    for index, chemin in enumerate(images):
+        if index < n_train:
+            assignations.append((chemin, "train"))
+        elif index < n_train + n_valid:
+            assignations.append((chemin, "valid"))
+        else:
+            assignations.append((chemin, "test"))
+    return assignations
+
+
+def integrer_murs_sains(
+    racine_dataset: Path, dossier_murs_sains: Path, prefixe: str = "mur_sain_"
+) -> dict[str, int]:
+    """Intègre des murs sains dans le dataset YOLO comme exemples négatifs.
+
+    Chaque image est copiée dans ``images/<split>/`` avec un fichier label
+    VIDE dans ``labels/<split>/`` : c'est ce qui signale « aucune fissure »
+    à YOLO tout en gardant une seule classe (``crack``).
+
+    - Si ``dossier_murs_sains`` contient des sous-dossiers train/valid/test,
+      ils sont respectés ; sinon les images sont réparties proportionnellement
+      aux splits déjà présents dans le dataset.
+    - Idempotent : une image déjà copiée est ignorée (le nom de destination
+      inclut un hachage du chemin source), donc relancer ne duplique rien et
+      deux images de même nom dans des sous-dossiers différents ne s'écrasent pas.
+    """
+    if not dossier_murs_sains.exists():
+        raise FileNotFoundError(
+            f"Dossier de murs sains introuvable : {dossier_murs_sains}"
+        )
+
+    # Garde-fou : le dossier source ne doit pas être à l'intérieur du dataset
+    # (ni l'inverse), sinon rglob ré-ingérerait les copies à chaque relance.
+    racine_resolue = racine_dataset.resolve()
+    source_resolue = dossier_murs_sains.resolve()
+    if source_resolue.is_relative_to(racine_resolue) or racine_resolue.is_relative_to(
+        source_resolue
+    ):
+        raise ValueError(
+            "--murs-sains ne doit pas être situé à l'intérieur du dataset "
+            f"({racine_resolue}). Place le dossier des murs sains à côté du "
+            "dataset (ex. murs_sains/ frère de dataset/)."
+        )
+
+    images = _collecter_images(dossier_murs_sains)
+    if not images:
+        raise ValueError(
+            f"Aucune image trouvée dans le dossier de murs sains : {dossier_murs_sains}"
+        )
+
+    avec_split = [(chemin, _split_depuis_chemin(chemin, dossier_murs_sains)) for chemin in images]
+    if any(split for _, split in avec_split):
+        assignations = [(chemin, split or "train") for chemin, split in avec_split]
+    else:
+        assignations = _repartir_murs_sains(images, racine_dataset)
+
+    ajoutes = {"train": 0, "valid": 0, "test": 0}
+    ignores = 0
+    for chemin_source, split in assignations:
+        dossier_images = racine_dataset / "images" / split
+        dossier_labels = racine_dataset / "labels" / split
+        dossier_images.mkdir(parents=True, exist_ok=True)
+        dossier_labels.mkdir(parents=True, exist_ok=True)
+
+        # Nom de destination unique et déterministe : hachage du chemin relatif
+        # source → pas de collision entre fichiers homonymes, et idempotent.
+        relatif = chemin_source.relative_to(source_resolue)
+        empreinte = hashlib.sha1(str(relatif).encode("utf-8")).hexdigest()[:8]
+        dest_image = dossier_images / f"{prefixe}{empreinte}_{chemin_source.name}"
+        dest_label = dossier_labels / f"{prefixe}{empreinte}_{chemin_source.stem}.txt"
+
+        if dest_image.exists():
+            ignores += 1
+        else:
+            shutil.copy2(chemin_source, dest_image)
+            ajoutes[split] += 1
+        if not dest_label.exists():
+            dest_label.write_text("", encoding="utf-8")  # label vide = exemple négatif
+
+    print("\n" + "═" * 55)
+    print("  INTÉGRATION DES MURS SAINS (exemples négatifs)")
+    print("═" * 55)
+    print(f"  Source            : {dossier_murs_sains}")
+    print(f"  Images trouvées   : {len(images)}")
+    for split in ("train", "valid", "test"):
+        if ajoutes[split]:
+            print(f"  Ajoutés ({split:<5})  : {ajoutes[split]}")
+    if ignores:
+        print(f"  Déjà présents     : {ignores} (ignorés)")
+    print("  Label par image   : VIDE  →  reste 1 classe (crack)")
+    print("═" * 55 + "\n")
+    return ajoutes
+
+
 def _valeur_metrique_yolo(resultats: Any, fragments_cles: tuple[str, ...]) -> float | None:
     """Récupère une métrique Ultralytics depuis results_dict si disponible."""
     dictionnaire = getattr(resultats, "results_dict", None)
@@ -505,14 +666,14 @@ def main() -> None:
         if not chemin_yaml.is_file():
             raise FileNotFoundError(f"Fichier data.yaml introuvable : {chemin_yaml}")
         print(f"[YOLO] Dataset YOLO natif (--yaml) : {chemin_yaml}")
-        afficher_resume_dataset_yolo(chemin_yaml.parent)
+        racine_dataset_yolo = chemin_yaml.parent
     else:
         # Détection automatique : data.yaml présent dans --donnees ?
         chemin_yaml_auto = Path(args.donnees).expanduser().resolve() / "data.yaml"
         if chemin_yaml_auto.is_file():
             chemin_yaml = chemin_yaml_auto
             print(f"[YOLO] Format YOLO natif détecté automatiquement : {chemin_yaml}")
-            afficher_resume_dataset_yolo(chemin_yaml.parent)
+            racine_dataset_yolo = chemin_yaml.parent
         else:
             # Conversion depuis COCO
             racine_dataset_yolo = racine_sorties / "dataset_yolo"
@@ -524,7 +685,13 @@ def main() -> None:
                 taille_image=args.taille_image,
             )
             print(f"[YOLO] Dataset converti depuis COCO : {chemin_yaml}")
-            afficher_resume_dataset_yolo(racine_dataset_yolo)
+
+    # Intégration optionnelle des murs sains comme exemples négatifs (label vide)
+    if args.murs_sains:
+        dossier_murs_sains = Path(args.murs_sains).expanduser().resolve()
+        integrer_murs_sains(racine_dataset_yolo, dossier_murs_sains)
+
+    afficher_resume_dataset_yolo(racine_dataset_yolo)
 
     if args.convertir_seulement:
         print("[YOLO] Conversion terminée, entraînement ignoré.")

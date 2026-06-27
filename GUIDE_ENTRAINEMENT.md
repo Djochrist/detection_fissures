@@ -37,6 +37,7 @@ names: ['crack']
 ```bash
 python entrainer_yolo.py \
   --yaml          dataset/data.yaml \
+  --murs-sains    murs_sains \
   --modele        yolo11m-seg.pt \
   --taille-image  640 \
   --epoques       150 \
@@ -51,6 +52,12 @@ python entrainer_yolo.py \
   --nom           yolo11m_fissures \
   --sorties       sorties_yolo
 ```
+
+> `--murs-sains` (optionnel) : dossier d'images **sans fissure** placé à côté de
+> `dataset/`. Le code les copie dans le dataset avec un label **vide** (exemples
+> négatifs), reste à **1 classe** (`crack`), et c'est **idempotent**. Les
+> sous-dossiers `train/valid/test` sont respectés ; sinon répartition automatique.
+> Retire ce flag si tu n'as pas de murs sains.
 
 Meilleur modèle → `sorties_yolo/entrainements/yolo11m_fissures/weights/best.pt`
 

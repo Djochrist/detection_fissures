@@ -31,6 +31,7 @@ def afficher_commandes() -> None:
 
     python entrainer_yolo.py \\
       --yaml             dataset/data.yaml \\
+      --murs-sains       murs_sains \\
       --modele           yolo11m-seg.pt \\
       --taille-image     640 \\
       --epoques          150 \\
@@ -44,6 +45,9 @@ def afficher_commandes() -> None:
       --dispositif       auto \\
       --nom              yolo11m_fissures \\
       --sorties          sorties_yolo
+
+  --murs-sains (optionnel) : dossier d'images sans fissure intégrées comme
+  exemples négatifs (label vide, 1 classe). À retirer si tu n'en as pas.
 
   └────────────────────────────────────────────────────────────────────┘
 
