@@ -106,7 +106,7 @@ Si ce test passe, lance l'entraînement complet.
   --sorties       "$SORTIES_YOLO"
 ```
 
-**GPU T4 (6 Go VRAM)** — si CUDA out of memory, passer à `--lot 4` ou utiliser YOLO11s :
+**GPU T4 (≈15 Go VRAM)** — si CUDA out of memory même avec `--lot 4`, baisse à `--taille-image 896` (puis `768`), ou utilise YOLO11s :
 
 ```bash
 !python entrainer_yolo.py \

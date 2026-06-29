@@ -140,8 +140,9 @@ ensuite (voir section 11).
 
 > 🔍 **`--taille-image 1024`** : on entraîne en 1024 px (au lieu de 640) parce que
 > les fissures fines sont de **petits objets** — à plus haute résolution elles
-> occupent plus de cases dans la grille de détection, ce qui fait nettement
-> monter le mAP. L'image source reste en 640 natif, elle est juste agrandie.
+> occupent plus de cases dans la grille de détection, ce qui aide souvent à
+> faire monter le mAP (gain variable selon le dataset). L'image source reste en
+> 640 natif, elle est juste agrandie.
 
 > ⚡ **`--lot 4`** : la haute résolution consomme beaucoup de mémoire GPU. Sur un
 > T4 gratuit Colab (≈ 15 Go), `--lot 4` est le réglage sûr. Si tu vois quand même
@@ -325,7 +326,7 @@ Résultats produits :
 | `--seuil 0.25` | Score de confiance minimal (baisser = plus de détections, plus de faux positifs) |
 | `--sans-images` | Produit **uniquement** le JSON (plus rapide, pas de copies annotées) |
 | `--sortie chemin.json` | Nomme explicitement le fichier JSON de sortie |
-| `--taille-image 1024` | Idéalement la **même** résolution qu'à l'entraînement (1024 avec la config recommandée) |
+| `--taille-image 640` | Résolution d'inférence. Laisse **640** (taille des photos) : les masques sont de toute façon ramenés à la taille de l'image d'origine, et l'indice de danger est calibré pour 640. La résolution 1024 sert à l'**entraînement**, pas à l'analyse. |
 
 ### 9.4 — Lire le rapport JSON
 
@@ -439,8 +440,8 @@ La courbe de perte d'entraînement descend mais la validation stagne/remonte :
 
 ### 11.7 — Mémoire GPU insuffisante (CUDA out of memory)
 
-- **Réduis `--lot`** : 8 → 4 → 2.
-- **Réduis `--taille-image`** : 640 → 512.
+- **Réduis `--lot`** : 4 → 2.
+- **Réduis `--taille-image`** : 1024 → 896 → 768.
 - **Modèle plus petit** : `m` → `s`.
 - **Cache disque** : `--cache disk` (au lieu de `ram`).
 
