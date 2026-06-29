@@ -124,9 +124,9 @@ ensuite (voir section 11).
   --yaml          "$DATASET_YAML" \
   --murs-sains    "$MURS_SAINS" \
   --modele        yolo11m-seg.pt \
-  --taille-image  640 \
+  --taille-image  1024 \
   --epoques       300 \
-  --lot           32 \
+  --lot           4 \
   --lr            0.01 \
   --lrf           0.01 \
   --weight-decay  0.0001 \
@@ -138,9 +138,15 @@ ensuite (voir section 11).
   --sorties       "$SORTIES_YOLO"
 ```
 
-> ⚡ **`--lot 32`** accélère l'entraînement mais demande beaucoup de mémoire GPU
-> (≈ 16 Go). Sur un GPU plus petit (T4 gratuit Colab ≈ 15 Go) tu peux voir
-> `CUDA out of memory` : dans ce cas baisse à `--lot 16`, puis `8`, puis `4`.
+> 🔍 **`--taille-image 1024`** : on entraîne en 1024 px (au lieu de 640) parce que
+> les fissures fines sont de **petits objets** — à plus haute résolution elles
+> occupent plus de cases dans la grille de détection, ce qui fait nettement
+> monter le mAP. L'image source reste en 640 natif, elle est juste agrandie.
+
+> ⚡ **`--lot 4`** : la haute résolution consomme beaucoup de mémoire GPU. Sur un
+> T4 gratuit Colab (≈ 15 Go), `--lot 4` est le réglage sûr. Si tu vois quand même
+> `CUDA out of memory`, c'est déjà le minimum (essaie `--taille-image 896`). Si au
+> contraire ça passe large, monte à `--lot 6` ou `8` pour accélérer.
 
 > 🧱 **`--murs-sains`** intègre automatiquement tes murs sains comme exemples
 > négatifs (label vide, 1 classe). Ajoute simplement cette ligne à n'importe
@@ -319,7 +325,7 @@ Résultats produits :
 | `--seuil 0.25` | Score de confiance minimal (baisser = plus de détections, plus de faux positifs) |
 | `--sans-images` | Produit **uniquement** le JSON (plus rapide, pas de copies annotées) |
 | `--sortie chemin.json` | Nomme explicitement le fichier JSON de sortie |
-| `--taille-image 640` | Doit correspondre à la résolution d'entraînement |
+| `--taille-image 1024` | Idéalement la **même** résolution qu'à l'entraînement (1024 avec la config recommandée) |
 
 ### 9.4 — Lire le rapport JSON
 
@@ -385,9 +391,12 @@ Le modèle ne détecte pas assez bien. À essayer, dans l'ordre :
 > prudent pour les fissures fines (pas de rotation/effacement). Ajoute aussi des
 > **données réelles** (images + **murs sains**) quand c'est possible.
 
-> 📏 **Note résolution.** Ton dataset est en 640px natif : monter
-> `--taille-image` au-delà ne fait qu'agrandir les images existantes (gain réel
-> faible). Les vrais leviers sont l'augmentation, le modèle et les données.
+> 📏 **Note résolution.** Ton dataset est en 640px natif. Monter `--taille-image`
+> à 1024 n'ajoute pas de nouveaux détails (l'image est agrandie), **mais** pour des
+> **petits objets** comme les fissures fines ça aide réellement : la fissure occupe
+> plus de cases dans la grille de détection, donc le modèle la localise/segmente
+> mieux → le mAP monte. C'est le 1ᵉʳ levier à essayer ici. Les autres leviers
+> restent l'augmentation, un modèle plus gros, et surtout plus de **données réelles**.
 
 ### 11.2 — Le rappel est bas (le modèle rate des fissures)
 

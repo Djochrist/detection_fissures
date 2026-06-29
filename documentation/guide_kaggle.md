@@ -92,9 +92,9 @@ Si ce test passe, lance l'entraînement complet.
 !python entrainer_yolo.py \
   --yaml          "$DATASET_YAML" \
   --modele        yolo11m-seg.pt \
-  --taille-image  640 \
+  --taille-image  1024 \
   --epoques       300 \
-  --lot           32 \
+  --lot           4 \
   --lr            0.01 \
   --lrf           0.01 \
   --weight-decay  0.0001 \

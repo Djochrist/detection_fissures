@@ -33,9 +33,9 @@ def afficher_commandes() -> None:
       --yaml             dataset/data.yaml \\
       --murs-sains       murs_sains \\
       --modele           yolo11m-seg.pt \\
-      --taille-image     640 \\
+      --taille-image     1024 \\
       --epoques          300 \\
-      --lot              32 \\
+      --lot              4 \\
       --lr               0.01 \\
       --lrf              0.01 \\
       --weight-decay     0.0001 \\

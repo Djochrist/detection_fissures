@@ -80,12 +80,12 @@ def analyser_arguments() -> argparse.Namespace:
         ),
     )
     analyseur.add_argument("--epoques", type=int, default=300)
-    analyseur.add_argument("--lot", type=int, default=32, help="Batch size (32 = gros GPU ; baisser si CUDA out of memory)")
+    analyseur.add_argument("--lot", type=int, default=8, help="Batch size (8 par défaut à 1024px ; baisser à 4 si CUDA out of memory, monter si VRAM dispo)")
     analyseur.add_argument(
         "--taille-image",
         type=int,
-        default=640,
-        help="Taille cible des images (imgsz YOLO). Doit correspondre au dataset.",
+        default=1024,
+        help="Taille cible des images (imgsz YOLO). 1024 aide nettement pour les fissures fines (petits objets), même si le dataset est en 640 natif.",
     )
     analyseur.add_argument("--lr", type=float, default=1e-2, help="lr0 Ultralytics")
     analyseur.add_argument("--lrf", type=float, default=0.01, help="Fraction finale du LR")
