@@ -118,9 +118,14 @@ transformée en plusieurs variantes pour enrichir l'apprentissage :
 | Flou gaussien | 0 – 2.5 pixels | Simulation d'une caméra pas parfaitement mise au point |
 | Bruit sel-et-poivre | 0.1 % des pixels | Simulation d'un capteur de mauvaise qualité |
 
-**Conséquence pratique :** notre code ne fait aucune augmentation supplémentaire.
-On charge les images telles quelles et on applique uniquement la **normalisation ImageNet**
-(explication ci-dessous).
+**Conséquence pratique (Mask R-CNN) :** l'entraînement Mask R-CNN ne fait aucune
+augmentation supplémentaire. On charge les images telles quelles et on applique
+uniquement la **normalisation ImageNet** (explication ci-dessous).
+
+> ℹ️ **Côté YOLO**, l'entraînement peut ajouter une augmentation **dynamique** via
+> `--augmentation` (défaut `moderee` : mosaic partiel + flip + légères variations ;
+> `forte` plus agressif ; `desactivee` pour aucune). Ces augmentations sont calculées
+> à la volée à chaque époque, en plus des augmentations Roboflow déjà figées ci-dessus.
 
 ---
 

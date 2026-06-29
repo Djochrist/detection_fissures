@@ -99,6 +99,8 @@ python entrainer_yolo.py \
 > `--yaml` charge directement le dataset Roboflow natif sans conversion.  
 > `--murs-sains` (optionnel) intègre des images sans fissure comme exemples
 > négatifs (label vide, 1 classe `crack`) ; retire-le si tu n'en as pas.  
+> `--augmentation moderee` (défaut) ajoute une augmentation dynamique douce pour
+> viser un meilleur mAP ; `forte` pousse plus, `desactivee` revient à zéro.  
 > `--mask-ratio 1` = masques pleine résolution — critique pour les fissures de 1-3 px.
 
 Voir `GUIDE_ENTRAINEMENT.md` pour toutes les options et les commandes Colab/Kaggle.

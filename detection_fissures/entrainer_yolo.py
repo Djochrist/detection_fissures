@@ -117,6 +117,17 @@ def analyser_arguments() -> argparse.Namespace:
         help="Désactive le scheduler cosinus",
     )
     analyseur.add_argument(
+        "--augmentation",
+        choices=["desactivee", "moderee", "forte"],
+        default="moderee",
+        help=(
+            "Niveau d'augmentation à l'entraînement. "
+            "moderee = mosaic partiel + flip + légères variations (sûr pour "
+            "fissures fines, défaut) ; forte = plus agressif ; "
+            "desactivee = aucune (dataset déjà pré-augmenté)."
+        ),
+    )
+    analyseur.add_argument(
         "--mask-ratio",
         type=int,
         default=1,
@@ -557,6 +568,45 @@ def installer_journaux_yolo(modele: Any, actif: bool = True) -> None:
         )
 
 
+def parametres_augmentation(niveau: str) -> dict[str, Any]:
+    """Renvoie les paramètres d'augmentation Ultralytics selon le niveau.
+
+    - ``desactivee`` : aucune augmentation (le dataset Roboflow est déjà
+      pré-augmenté 5× et les murs sains servent d'exemples négatifs bruts).
+    - ``moderee`` (défaut) : mosaic partiel + flip horizontal + légères
+      variations couleur/échelle. Volontairement prudent pour les fissures
+      fines — pas de rotation/shear/erasing qui pourraient casser ou effacer
+      une fissure de 1-3 px, et mosaic réduit pour ne pas trop la rétrécir.
+    - ``forte`` : augmentation plus agressive (rotation, shear, mixup,
+      copy_paste, erasing) — gain potentiel plus élevé mais plus risqué.
+    """
+    base: dict[str, Any] = {
+        "hsv_h": 0.0, "hsv_s": 0.0, "hsv_v": 0.0,
+        "degrees": 0.0, "translate": 0.0, "scale": 0.0,
+        "shear": 0.0, "perspective": 0.0,
+        "flipud": 0.0, "fliplr": 0.0, "bgr": 0.0,
+        "mosaic": 0.0, "close_mosaic": 0,
+        "mixup": 0.0, "cutmix": 0.0, "copy_paste": 0.0,
+        "erasing": 0.0, "auto_augment": None, "multi_scale": False,
+    }
+    if niveau == "moderee":
+        base.update({
+            "hsv_h": 0.015, "hsv_s": 0.4, "hsv_v": 0.4,
+            "translate": 0.1, "scale": 0.3,
+            "fliplr": 0.5,
+            "mosaic": 0.5, "close_mosaic": 10,
+        })
+    elif niveau == "forte":
+        base.update({
+            "hsv_h": 0.015, "hsv_s": 0.7, "hsv_v": 0.4,
+            "degrees": 5.0, "translate": 0.1, "scale": 0.5, "shear": 2.0,
+            "fliplr": 0.5,
+            "mosaic": 1.0, "close_mosaic": 10,
+            "mixup": 0.1, "copy_paste": 0.1, "erasing": 0.2,
+        })
+    return base
+
+
 def construire_arguments_train_yolo(
     args: argparse.Namespace,
     chemin_yaml: Path,
@@ -586,27 +636,8 @@ def construire_arguments_train_yolo(
         "val": True,
         "save_period": args.save_period,
         "cos_lr": args.cos_lr,
-        # Augmentations entièrement désactivées : le dataset Roboflow est déjà
-        # pré-augmenté (5×) et les murs sains servent d'exemples négatifs bruts.
-        "hsv_h": 0.0,
-        "hsv_s": 0.0,
-        "hsv_v": 0.0,
-        "degrees": 0.0,
-        "translate": 0.0,
-        "scale": 0.0,
-        "shear": 0.0,
-        "perspective": 0.0,
-        "flipud": 0.0,
-        "fliplr": 0.0,
-        "bgr": 0.0,
-        "mosaic": 0.0,
-        "close_mosaic": 0,
-        "mixup": 0.0,
-        "cutmix": 0.0,
-        "copy_paste": 0.0,
-        "erasing": 0.0,
-        "auto_augment": None,
-        "multi_scale": False,
+        # Augmentation pilotée par --augmentation (desactivee / moderee / forte).
+        **parametres_augmentation(args.augmentation),
         "mask_ratio": args.mask_ratio,
         "overlap_mask": args.overlap_mask,
         "single_cls": args.classe_unique,
@@ -632,7 +663,7 @@ def afficher_configuration_yolo(args: argparse.Namespace, checkpoint_resume: Pat
         ("Warmup", args.warmup_epochs),
         ("Patience", args.patience),
         ("cos_lr", args.cos_lr),
-        ("Augmentation", "désactivée"),
+        ("Augmentation", args.augmentation),
         ("Mask ratio", args.mask_ratio),
         ("Classe unique", args.classe_unique),
         ("Cache", args.cache),

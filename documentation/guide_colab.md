@@ -366,21 +366,28 @@ Voici quoi faire selon ce que tu observes.
 
 Le modèle ne détecte pas assez bien. À essayer, dans l'ordre :
 
-1. **Entraîner plus longtemps** — passe `--epoques` de 150 à `250` ou `300`, et
-   augmente `--patience` à `80` pour ne pas arrêter trop tôt.
-2. **Modèle plus gros** — passe de `yolo11s-seg.pt` à `yolo11m-seg.pt`
+1. **Réactiver l'augmentation** — `--augmentation moderee` (défaut) ajoute
+   mosaic partiel + flip + légères variations couleur/échelle ; c'est souvent
+   le levier le plus efficace. `--augmentation forte` pour pousser davantage,
+   `--augmentation desactivee` pour revenir à zéro.
+2. **Entraîner plus longtemps** — `--epoques 300` et `--patience 100` pour ne
+   pas s'arrêter trop tôt (l'early stopping coupe quand ça plafonne).
+3. **Modèle plus gros** — passe de `yolo11s-seg.pt` à `yolo11m-seg.pt`
    (ou `yolo11l-seg.pt` si le GPU le permet). Plus de capacité = meilleure précision.
-3. **Garder la pleine résolution des masques** — vérifie `--mask-ratio 1`
+4. **Garder la pleine résolution des masques** — vérifie `--mask-ratio 1`
    (essentiel pour les fissures fines de 1-3 px).
-4. **Augmenter la résolution** — `--taille-image 768` ou `960` (multiple de 32)
-   si le GPU a assez de mémoire ; baisse alors `--lot` (ex. 4).
 5. **Vérifier les annotations** — un mAP très bas vient souvent d'un dataset mal
    étiqueté, pas du modèle. Inspecte quelques images annotées.
 
-> ⚠️ **Augmentation désactivée.** Le dataset Roboflow est déjà pré-augmenté (5×)
-> et l'entraînement n'applique plus aucune augmentation à la volée. Les leviers
-> ci-dessous portent donc sur le modèle, les époques, le seuil et les **données**
-> (ajouter des images réelles ou des **murs sains**), pas sur des réglages d'augmentation.
+> ℹ️ **Augmentation.** Le dataset Roboflow est déjà pré-augmenté (5×, figé dans
+> les images). Le flag `--augmentation` ajoute une augmentation **dynamique** à
+> l'entraînement (différente et complémentaire). `moderee` est volontairement
+> prudent pour les fissures fines (pas de rotation/effacement). Ajoute aussi des
+> **données réelles** (images + **murs sains**) quand c'est possible.
+
+> 📏 **Note résolution.** Ton dataset est en 640px natif : monter
+> `--taille-image` au-delà ne fait qu'agrandir les images existantes (gain réel
+> faible). Les vrais leviers sont l'augmentation, le modèle et les données.
 
 ### 11.2 — Le rappel est bas (le modèle rate des fissures)
 

@@ -59,6 +59,12 @@ python entrainer_yolo.py \
 > sous-dossiers `train/valid/test` sont respectés ; sinon répartition automatique.
 > Retire ce flag si tu n'as pas de murs sains.
 
+> `--augmentation` (défaut `moderee`) pilote l'augmentation **dynamique** à
+> l'entraînement : `moderee` = mosaic partiel + flip + légères variations
+> couleur/échelle (prudent pour fissures fines), `forte` = plus agressif
+> (rotation, shear, mixup, copy_paste, erasing), `desactivee` = aucune. C'est
+> souvent le levier le plus efficace pour faire monter le mAP.
+
 Meilleur modèle → `sorties_yolo/entrainements/yolo11m_fissures/weights/best.pt`
 
 ---
