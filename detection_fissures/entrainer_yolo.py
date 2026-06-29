@@ -79,7 +79,7 @@ def analyser_arguments() -> argparse.Namespace:
             "Un checkpoint .pt local est aussi accepté."
         ),
     )
-    analyseur.add_argument("--epoques", type=int, default=150)
+    analyseur.add_argument("--epoques", type=int, default=300)
     analyseur.add_argument("--lot", type=int, default=32, help="Batch size (32 = gros GPU ; baisser si CUDA out of memory)")
     analyseur.add_argument(
         "--taille-image",
@@ -95,7 +95,7 @@ def analyser_arguments() -> argparse.Namespace:
         default=1e-4,
         help="Décroissance des poids Ultralytics (frein léger : 1e-4)",
     )
-    analyseur.add_argument("--patience", type=int, default=50, help="Patience early stopping")
+    analyseur.add_argument("--patience", type=int, default=100, help="Patience early stopping")
     analyseur.add_argument("--workers", type=int, default=2)
     analyseur.add_argument(
         "--optimizer",

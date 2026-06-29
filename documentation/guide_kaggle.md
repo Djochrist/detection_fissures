@@ -93,12 +93,12 @@ Si ce test passe, lance l'entraînement complet.
   --yaml          "$DATASET_YAML" \
   --modele        yolo11m-seg.pt \
   --taille-image  640 \
-  --epoques       150 \
+  --epoques       300 \
   --lot           32 \
   --lr            0.01 \
   --lrf           0.01 \
   --weight-decay  0.0001 \
-  --patience      50 \
+  --patience      100 \
   --warmup-epochs 5.0 \
   --mask-ratio    1 \
   --dispositif    cuda \
